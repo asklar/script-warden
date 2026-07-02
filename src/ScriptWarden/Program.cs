@@ -1,1 +1,42 @@
-﻿Console.WriteLine("Hello, World!");
+﻿using ScriptWarden;
+using ScriptWarden.Commands;
+
+// Entry point + command dispatch. Kept dependency-free (hand-rolled parsing) for a small, fast,
+// AOT-friendly binary.
+if (args.Length == 0)
+{
+    Help.Print();
+    return 0;
+}
+
+string command = args[0].ToLowerInvariant().TrimStart('-');
+
+try
+{
+    switch (command)
+    {
+        case "shim":
+            return ShimCommand.Run(args);
+
+        case "help":
+        case "h":
+        case "?":
+            Help.Print();
+            return 0;
+
+        case "version":
+        case "v":
+            Help.PrintVersion();
+            return 0;
+
+        default:
+            Console.Error.WriteLine($"script-warden: unknown command '{args[0]}'.");
+            Help.Print();
+            return 2;
+    }
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"script-warden: {ex.Message}");
+    return 1;
+}
