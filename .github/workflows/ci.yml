@@ -1,0 +1,71 @@
+name: CI
+
+# Per repo owner preference: do NOT auto-run on every push to main (to conserve Actions minutes).
+# Runs on pull requests and manual dispatch only.
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: Build & test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Restore
+        run: dotnet restore ScriptWarden.slnx
+
+      - name: Build
+        run: dotnet build ScriptWarden.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test ScriptWarden.slnx -c Release --no-build --verbosity normal
+
+  publish-aot:
+    name: Publish AOT binary (manual)
+    runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Publish (Native AOT)
+        run: dotnet publish src/ScriptWarden/ScriptWarden.csproj -c Release -r win-x64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: script-warden-win-x64
+          path: src/ScriptWarden/bin/Release/net10.0-windows/win-x64/publish/script-warden.exe

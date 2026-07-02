@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>script-warden</AssemblyName>
+    <RootNamespace>ScriptWarden</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScriptWarden.Core\ScriptWarden.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Single-file SPA produced by the Vite build (web\dist\index.html). Embedded so the
+       tool remains one self-contained native exe. Optional at build time. -->
+  <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\..\..\web\dist\index.html')">
+    <EmbeddedResource Include="..\..\web\dist\index.html">
+      <LogicalName>ScriptWarden.WebUI.index.html</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>

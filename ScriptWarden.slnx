@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ScriptWarden.Core/ScriptWarden.Core.csproj" />
+    <Project Path="src/ScriptWarden/ScriptWarden.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ScriptWarden.Tests/ScriptWarden.Tests.csproj" />
+  </Folder>
+</Solution>
