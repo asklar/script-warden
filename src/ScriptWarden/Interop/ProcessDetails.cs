@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Principal;
+using ScriptWarden.Core;
 
 namespace ScriptWarden.Interop;
 
@@ -86,6 +87,34 @@ internal static class ProcessDetails
         }
 
         return new Identity(user, sid, session);
+    }
+
+    /// <summary>
+    /// Determines whether this process (launched by IFEO in place of the interpreter, inheriting the
+    /// caller's creation flags/startup info) has a visible window, a hidden one, or no console at all.
+    /// </summary>
+    public static WindowVisibility GetWindowVisibility()
+    {
+        try
+        {
+            NativeMethods.GetStartupInfo(out NativeMethods.STARTUPINFOW si);
+            if ((si.dwFlags & NativeMethods.STARTF_USESHOWWINDOW) != 0 && si.wShowWindow == NativeMethods.SW_HIDE)
+            {
+                return WindowVisibility.Hidden;
+            }
+
+            IntPtr consoleWindow = NativeMethods.GetConsoleWindow();
+            if (consoleWindow == IntPtr.Zero)
+            {
+                return WindowVisibility.None;
+            }
+
+            return NativeMethods.IsWindowVisible(consoleWindow) ? WindowVisibility.Visible : WindowVisibility.Hidden;
+        }
+        catch
+        {
+            return WindowVisibility.Unknown;
+        }
     }
 
     private static unsafe string ReadExeName(ref NativeMethods.PROCESSENTRY32W entry)

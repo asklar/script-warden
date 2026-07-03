@@ -52,6 +52,20 @@ internal static partial class ServeCommand
     {
         try
         {
+            if (req.Path == "/api/clear")
+            {
+                return string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase)
+                    ? ApiClear()
+                    : HttpResponse.Text("Method Not Allowed", 405);
+            }
+
+            if (req.Path == "/api/config")
+            {
+                return string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase)
+                    ? ApiSetConfig(req)
+                    : ApiGetConfig();
+            }
+
             return req.Path switch
             {
                 "/" or "/index.html" => ServeIndex(),
@@ -65,6 +79,57 @@ internal static partial class ServeCommand
         {
             return HttpResponse.Text($"error: {ex.Message}", 500);
         }
+    }
+
+    private static HttpResponse ApiClear()
+    {
+        int events = 0;
+        int scripts = 0;
+        var cleared = new List<string>();
+        foreach (ResolvedRoot root in DataRoots.ForViewer())
+        {
+            if (!root.Readable)
+            {
+                continue;
+            }
+            (int e, int s) = AuditStore.ClearRoot(root.Path);
+            events += e;
+            scripts += s;
+            if (e > 0 || s > 0)
+            {
+                cleared.Add(root.Origin.ToString());
+            }
+        }
+
+        var result = new ClearResult { Events = events, Scripts = scripts, Roots = cleared };
+        return HttpResponse.Json(JsonSerializer.Serialize(result, ServeJsonContext.Default.ClearResult));
+    }
+
+    private static HttpResponse ApiGetConfig()
+    {
+        WardenConfig config = ConfigStore.Load(DataRoots.CurrentUserRoot());
+        return HttpResponse.Json(JsonSerializer.Serialize(config, AuditJsonContext.Default.WardenConfig));
+    }
+
+    private static HttpResponse ApiSetConfig(HttpRequest req)
+    {
+        WardenConfig? config;
+        try
+        {
+            config = JsonSerializer.Deserialize(req.Body, AuditJsonContext.Default.WardenConfig);
+        }
+        catch (Exception ex)
+        {
+            return HttpResponse.Text($"invalid config: {ex.Message}", 400);
+        }
+
+        if (config is null)
+        {
+            return HttpResponse.Text("invalid config", 400);
+        }
+
+        ConfigStore.Save(DataRoots.CurrentUserRoot(), config);
+        return HttpResponse.Json(JsonSerializer.Serialize(config, AuditJsonContext.Default.WardenConfig));
     }
 
     private static HttpResponse ApiStatus()

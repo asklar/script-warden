@@ -34,6 +34,15 @@ internal static class Help
                 --json           Emit JSON.
                 --image NAME     Filter by hooked image.
                 --since DATE     Only events at/after this UTC time (e.g. 2026-01-01).
+              clear              Delete all captured audit data (events + scripts).
+                --yes            Skip the confirmation prompt.
+              config             Show or edit configuration (exclusions).
+                --enable         Enable auditing.
+                --disable        Disable auditing (launches still run).
+                --exclude-parent NAME   Do not audit launches whose parent is NAME (e.g. copilot.exe).
+                --remove-parent NAME    Remove a parent exclusion.
+                --exclude-image NAME    Do not audit this hooked image.
+                --remove-image NAME     Remove an image exclusion.
               diagnose           Self-test: resolved data roots, write access, live IFEO values,
                                  and a simulated capture.
               version            Print the version.

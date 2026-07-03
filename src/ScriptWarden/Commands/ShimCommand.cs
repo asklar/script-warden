@@ -65,7 +65,19 @@ internal static class ShimCommand
         }
 
         string root = DataRoots.CurrentUserRoot();
-        AuditEvent ev = BuildEvent(resolvedTarget ?? targetPath, interpreterArgs, childCommandLine, started.Pid);
+        var identity = ProcessDetails.GetIdentity();
+        var parent = ProcessDetails.GetParent();
+        string hookedImage = SafeFileName(resolvedTarget ?? targetPath);
+
+        // Honor exclusions (e.g. don't audit when launched by copilot.exe). Excluded launches still
+        // run transparently; we simply skip capture + logging.
+        WardenConfig config = ConfigStore.Load(root);
+        if (config.IsExcluded(hookedImage, parent.Name))
+        {
+            return TransparentLauncher.WaitForExit(started);
+        }
+
+        AuditEvent ev = BuildEvent(resolvedTarget ?? targetPath, interpreterArgs, childCommandLine, started.Pid, identity, parent, hookedImage);
 
         // Capture + write the initial record while the child runs (visible immediately, even for
         // long-lived interactive shells). All best-effort.
@@ -88,16 +100,20 @@ internal static class ShimCommand
         return exitCode;
     }
 
-    private static AuditEvent BuildEvent(string targetPath, string[] interpreterArgs, string commandLine, int childPid)
+    private static AuditEvent BuildEvent(
+        string targetPath,
+        string[] interpreterArgs,
+        string commandLine,
+        int childPid,
+        ProcessDetails.Identity identity,
+        ProcessDetails.ParentInfo parent,
+        string hookedImage)
     {
-        var identity = ProcessDetails.GetIdentity();
-        var parent = ProcessDetails.GetParent();
-
         return new AuditEvent
         {
             EventId = Guid.NewGuid().ToString(),
             TimestampUtc = DateTimeOffset.UtcNow,
-            HookedImage = SafeFileName(targetPath),
+            HookedImage = hookedImage,
             TargetPath = targetPath,
             CommandLine = commandLine,
             Arguments = interpreterArgs,
@@ -110,6 +126,7 @@ internal static class ShimCommand
             ParentProcessId = parent.Pid,
             ParentProcessName = parent.Name,
             ParentProcessPath = parent.Path,
+            Window = ProcessDetails.GetWindowVisibility(),
         };
     }
 

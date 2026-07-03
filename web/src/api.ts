@@ -28,6 +28,7 @@ export interface AuditEvent {
     exitCode?: number;
     scripts: CapturedScript[];
     origin: string;
+    window: string;
 }
 
 export interface RootDto {
@@ -66,4 +67,38 @@ export async function getScript(s: CapturedScript, origin: string): Promise<stri
     const r = await fetch(scriptUrl(s, origin));
     if (!r.ok) throw new Error(`status ${r.status}`);
     return r.text();
+}
+
+export interface ClearResult {
+    events: number;
+    scripts: number;
+    roots: string[];
+}
+
+export async function clearLogs(): Promise<ClearResult> {
+    const r = await fetch("/api/clear", { method: "POST" });
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
+}
+
+export interface WardenConfig {
+    enabled: boolean;
+    excludedParents: string[];
+    excludedImages: string[];
+}
+
+export async function getConfig(): Promise<WardenConfig> {
+    const r = await fetch("/api/config");
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
+}
+
+export async function saveConfig(config: WardenConfig): Promise<WardenConfig> {
+    const r = await fetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+    });
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
 }

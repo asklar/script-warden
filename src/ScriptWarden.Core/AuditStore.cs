@@ -84,6 +84,47 @@ public static class AuditStore
         return all;
     }
 
+    /// <summary>Deletes all event and script files under a root. Returns counts deleted; robust to locks.</summary>
+    public static (int Events, int Scripts) ClearRoot(string root)
+    {
+        int events = DeleteFilesIn(DataRoots.EventsDir(root), "*.json");
+        int scripts = DeleteFilesIn(DataRoots.ScriptsDir(root), "*");
+        return (events, scripts);
+    }
+
+    private static int DeleteFilesIn(string dir, string pattern)
+    {
+        if (!Directory.Exists(dir))
+        {
+            return 0;
+        }
+
+        int deleted = 0;
+        IEnumerable<string> files;
+        try
+        {
+            files = Directory.EnumerateFiles(dir, pattern);
+        }
+        catch
+        {
+            return 0;
+        }
+
+        foreach (string file in files)
+        {
+            try
+            {
+                File.Delete(file);
+                deleted++;
+            }
+            catch
+            {
+                // best-effort: a file may be locked by a concurrent write
+            }
+        }
+        return deleted;
+    }
+
     private static AuditEvent? TryRead(string file, AuditOrigin origin)
     {
         try

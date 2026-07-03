@@ -15,6 +15,7 @@ namespace ScriptWarden.Core;
 [JsonSerializable(typeof(CapturedScript))]
 [JsonSerializable(typeof(List<AuditEvent>))]
 [JsonSerializable(typeof(List<CapturedScript>))]
+[JsonSerializable(typeof(WardenConfig))]
 public partial class AuditJsonContext : JsonSerializerContext
 {
 }

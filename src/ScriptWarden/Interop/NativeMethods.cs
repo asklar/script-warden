@@ -20,6 +20,9 @@ internal static partial class NativeMethods
     public const uint TH32CS_SNAPPROCESS = 0x00000002;
     public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x00001000;
 
+    public const uint STARTF_USESHOWWINDOW = 0x00000001;
+    public const ushort SW_HIDE = 0;
+
     [StructLayout(LayoutKind.Sequential)]
     public struct STARTUPINFOW
     {
@@ -129,4 +132,14 @@ internal static partial class NativeMethods
         uint nBufferLength,
         char[] lpBuffer,
         IntPtr lpFilePart);
+
+    [LibraryImport("kernel32.dll", SetLastError = false)]
+    public static partial IntPtr GetConsoleWindow();
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GetStartupInfoW")]
+    public static partial void GetStartupInfo(out STARTUPINFOW lpStartupInfo);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool IsWindowVisible(IntPtr hWnd);
 }

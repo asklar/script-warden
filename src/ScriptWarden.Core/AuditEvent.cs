@@ -74,6 +74,10 @@ public sealed class AuditEvent
     /// <summary>Windows session id.</summary>
     public int SessionId { get; set; }
 
+    /// <summary>Whether the launch had a visible window/console (interactive vs "shadow" background).</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<WindowVisibility>))]
+    public WindowVisibility Window { get; set; } = WindowVisibility.Unknown;
+
     /// <summary>PID of the shim process.</summary>
     public int ShimProcessId { get; set; }
 

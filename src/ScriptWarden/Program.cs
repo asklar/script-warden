@@ -30,6 +30,12 @@ try
         case "list":
             return ListCommand.Run(args);
 
+        case "clear":
+            return ClearCommand.Run(args);
+
+        case "config":
+            return ConfigCommand.Run(args);
+
         case "diagnose":
             return DiagnoseCommand.Run(args);
 
