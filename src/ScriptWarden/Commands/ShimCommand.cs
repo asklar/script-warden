@@ -53,6 +53,7 @@ internal static class ShimCommand
         }
 
         // Start the child first so we add as little latency as possible to the launch.
+        long startTick = Environment.TickCount64;
         StartedProcess started;
         try
         {
@@ -94,9 +95,10 @@ internal static class ShimCommand
 
         TryWriteEvent(root, ev);
 
-        // Wait and propagate the exit code, then update the record with it.
+        // Wait and propagate the exit code + duration, then update the record.
         int exitCode = TransparentLauncher.WaitForExit(started);
         ev.ExitCode = exitCode;
+        ev.DurationMs = Environment.TickCount64 - startTick;
         TryWriteEvent(root, ev);
 
         return exitCode;

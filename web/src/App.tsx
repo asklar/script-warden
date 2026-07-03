@@ -91,6 +91,15 @@ function fmtSize(bytes: number): string {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function fmtDuration(ms?: number): string {
+    if (ms === undefined || ms === null) return "—";
+    if (ms < 1000) return `${ms} ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(1)} s`;
+    const m = Math.floor(ms / 60000);
+    const s = Math.round((ms % 60000) / 1000);
+    return `${m}m ${s}s`;
+}
+
 function windowColor(w: string): "success" | "warning" | "subtle" {
     if (w === "Windowed") return "success";
     if (w === "NoWindow") return "warning";
@@ -283,6 +292,7 @@ export function App() {
                                     <TableHeaderCell>Parent</TableHeaderCell>
                                     <TableHeaderCell>Scripts</TableHeaderCell>
                                     <TableHeaderCell>Exit</TableHeaderCell>
+                                    <TableHeaderCell>Duration</TableHeaderCell>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -302,6 +312,7 @@ export function App() {
                                         <TableCell>
                                             {e.exitCode === undefined || e.exitCode === null ? "—" : <Badge appearance="tint" color={e.exitCode === 0 ? "success" : "danger"}>{e.exitCode}</Badge>}
                                         </TableCell>
+                                        <TableCell>{fmtDuration(e.durationMs)}</TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>
@@ -464,6 +475,8 @@ function EventDialog({ event, onClose }: { event: AuditEvent | null; onClose: ()
                                 <Text>{event.origin}</Text>
                                 <Text className={styles.label}>Exit code</Text>
                                 <Text>{event.exitCode ?? "(still running / unknown)"}</Text>
+                                <Text className={styles.label}>Duration</Text>
+                                <Text>{event.durationMs === undefined ? "(still running / unknown)" : fmtDuration(event.durationMs)}</Text>
                             </div>
 
                             <Divider style={{ margin: "16px 0" }} />

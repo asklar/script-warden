@@ -96,6 +96,9 @@ public sealed class AuditEvent
     /// <summary>Exit code of the child interpreter, filled after it exits.</summary>
     public int? ExitCode { get; set; }
 
+    /// <summary>How long the child interpreter ran, in milliseconds; filled after it exits.</summary>
+    public long? DurationMs { get; set; }
+
     /// <summary>Scripts/commands captured from this launch.</summary>
     public List<CapturedScript> Scripts { get; set; } = [];
 
