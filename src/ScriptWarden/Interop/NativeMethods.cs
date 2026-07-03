@@ -141,8 +141,9 @@ internal static partial class NativeMethods
 
     /// <summary>
     /// Returns the raw process command line exactly as Windows passed it. Unlike
-    /// <c>Environment.CommandLine</c> (which, under Native AOT, is re-serialized from argv and loses
-    /// the original quoting), this is byte-for-byte what the OS provided — essential for forwarding
+    /// <c>Environment.CommandLine</c> (which is re-serialized from argv and loses the original
+    /// quoting — see dotnet/runtime#25841 "Value of Environment.CommandLine is different with the
+    /// actual input"), this is byte-for-byte what the OS provided, which is essential for forwarding
     /// an interpreter's command line verbatim.
     /// </summary>
     public static string GetRawCommandLine()

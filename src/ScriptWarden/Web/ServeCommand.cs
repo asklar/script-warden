@@ -70,7 +70,7 @@ internal static partial class ServeCommand
             {
                 "/" or "/index.html" => ServeIndex(),
                 "/api/status" => ApiStatus(),
-                "/api/events" => ApiEvents(),
+                "/api/events" => ApiEvents(req),
                 "/api/script" => ApiScript(req),
                 _ => HttpResponse.Text("Not Found", 404),
             };
@@ -134,7 +134,8 @@ internal static partial class ServeCommand
 
     private static HttpResponse ApiStatus()
     {
-        List<AuditEvent> events = AuditStore.ReadAllForViewer(out IReadOnlyList<ResolvedRoot> roots);
+        List<AuditEvent> events = SyncCache(out IReadOnlyList<ResolvedRoot> roots);
+        AuditFacets facets = AuditQuery.Facets(events);
         var status = new ServeStatus
         {
             Version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0",
@@ -147,14 +148,89 @@ internal static partial class ServeCommand
                 Readable = r.Readable,
                 Error = r.Error,
             }).ToList(),
+            Images = facets.Images,
+            Parents = facets.Parents,
+            Windows = facets.Windows,
         };
         return HttpResponse.Json(JsonSerializer.Serialize(status, ServeJsonContext.Default.ServeStatus));
     }
 
-    private static HttpResponse ApiEvents()
+    private static HttpResponse ApiEvents(HttpRequest req)
     {
-        List<AuditEvent> events = AuditStore.ReadAllForViewer(out _);
-        return HttpResponse.Json(JsonSerializer.Serialize(events, AuditJsonContext.Default.ListAuditEvent));
+        List<AuditEvent> events = SyncCache(out _);
+        int offset = ParseInt(req.Query.GetValueOrDefault("offset"), 0);
+        int limit = Math.Clamp(ParseInt(req.Query.GetValueOrDefault("limit"), 100), 1, 500);
+
+        EventsPage page = AuditQuery.Query(
+            events,
+            image: req.Query.GetValueOrDefault("image"),
+            origin: req.Query.GetValueOrDefault("origin"),
+            parent: req.Query.GetValueOrDefault("parent"),
+            window: req.Query.GetValueOrDefault("window"),
+            search: req.Query.GetValueOrDefault("q"),
+            offset: offset,
+            limit: limit);
+
+        return HttpResponse.Json(JsonSerializer.Serialize(page, AuditJsonContext.Default.EventsPage));
+    }
+
+    private static int ParseInt(string? value, int fallback) =>
+        int.TryParse(value, out int n) ? n : fallback;
+
+    // In-memory event cache. The HTTP server processes requests sequentially, so no locking is
+    // needed. On each request we reconcile the cache with the event files on disk: newly-seen files
+    // are parsed and added; files that disappeared (e.g. after a clear) are dropped. This keeps the
+    // viewer responsive for large trails without re-parsing every file on every request.
+    private static readonly Dictionary<string, AuditEvent> Cache = new(StringComparer.OrdinalIgnoreCase);
+
+    private static List<AuditEvent> SyncCache(out IReadOnlyList<ResolvedRoot> roots)
+    {
+        roots = DataRoots.ForViewer();
+
+        var current = new Dictionary<string, AuditOrigin>(StringComparer.OrdinalIgnoreCase);
+        foreach (ResolvedRoot root in roots)
+        {
+            if (!root.Readable)
+            {
+                continue;
+            }
+            string dir = DataRoots.EventsDir(root.Path);
+            if (!Directory.Exists(dir))
+            {
+                continue;
+            }
+            try
+            {
+                foreach (string file in Directory.EnumerateFiles(dir, "*.json"))
+                {
+                    current[file] = root.Origin;
+                }
+            }
+            catch
+            {
+                // ignore unreadable roots
+            }
+        }
+
+        foreach (string stale in Cache.Keys.Where(k => !current.ContainsKey(k)).ToList())
+        {
+            Cache.Remove(stale);
+        }
+
+        foreach ((string path, AuditOrigin origin) in current)
+        {
+            if (Cache.ContainsKey(path))
+            {
+                continue;
+            }
+            AuditEvent? ev = AuditStore.ReadEventFile(path, origin);
+            if (ev is not null)
+            {
+                Cache[path] = ev;
+            }
+        }
+
+        return Cache.Values.ToList();
     }
 
     private static HttpResponse ApiScript(HttpRequest req)

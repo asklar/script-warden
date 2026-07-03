@@ -43,6 +43,26 @@ export interface ServeStatus {
     version: string;
     eventCount: number;
     roots: RootDto[];
+    images: string[];
+    parents: string[];
+    windows: string[];
+}
+
+export interface EventsPage {
+    total: number;
+    offset: number;
+    limit: number;
+    events: AuditEvent[];
+}
+
+export interface EventQuery {
+    offset?: number;
+    limit?: number;
+    image?: string;
+    origin?: string;
+    parent?: string;
+    window?: string;
+    q?: string;
 }
 
 export async function getStatus(): Promise<ServeStatus> {
@@ -51,8 +71,12 @@ export async function getStatus(): Promise<ServeStatus> {
     return r.json();
 }
 
-export async function getEvents(): Promise<AuditEvent[]> {
-    const r = await fetch("/api/events");
+export async function getEvents(query: EventQuery = {}): Promise<EventsPage> {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(query)) {
+        if (v !== undefined && v !== null && v !== "" && v !== "all") params.set(k, String(v));
+    }
+    const r = await fetch(`/api/events?${params.toString()}`);
     if (!r.ok) throw new Error(`status ${r.status}`);
     return r.json();
 }

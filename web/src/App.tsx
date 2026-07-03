@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
     makeStyles,
     tokens,
@@ -62,6 +62,7 @@ const useStyles = makeStyles({
     headerRow: { display: "flex", alignItems: "center", justifyContent: "space-between" },
     headerActions: { display: "flex", gap: "12px", alignItems: "center" },
     toolbar: { display: "flex", gap: "12px", alignItems: "flex-end", flexWrap: "wrap" },
+    pager: { display: "flex", alignItems: "center", gap: "8px" },
     grow: { flex: 1 },
     search: { minWidth: "260px" },
     clickable: { cursor: "pointer" },
@@ -104,12 +105,16 @@ export function App() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [events, setEvents] = useState<AuditEvent[]>([]);
+    const [total, setTotal] = useState(0);
+    const [offset, setOffset] = useState(0);
+    const pageSize = 50;
     const [status, setStatus] = useState<ServeStatus | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const [autoRefresh, setAutoRefresh] = useState(true);
     const inFlight = useRef(false);
 
     const [search, setSearch] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
     const [imageFilter, setImageFilter] = useState(ALL);
     const [originFilter, setOriginFilter] = useState(ALL);
     const [parentFilter, setParentFilter] = useState(ALL);
@@ -122,9 +127,21 @@ export function App() {
         inFlight.current = true;
         if (!silent) setLoading(true);
         try {
-            const [s, e] = await Promise.all([getStatus(), getEvents()]);
+            const [s, page] = await Promise.all([
+                getStatus(),
+                getEvents({
+                    offset,
+                    limit: pageSize,
+                    image: imageFilter,
+                    origin: originFilter,
+                    parent: parentFilter,
+                    window: windowFilter,
+                    q: debouncedSearch,
+                }),
+            ]);
             setStatus(s);
-            setEvents(e);
+            setEvents(page.events);
+            setTotal(page.total);
             setLastUpdated(new Date());
             setError(null);
         } catch (err) {
@@ -135,42 +152,50 @@ export function App() {
         }
     }
 
+    // Debounce the free-text search; reset to the first page when it changes.
+    useEffect(() => {
+        const id = setTimeout(() => {
+            setDebouncedSearch(search);
+            setOffset(0);
+        }, 300);
+        return () => clearTimeout(id);
+    }, [search]);
+
+    // (Re)load whenever the page or any server-side filter changes.
     useEffect(() => {
         void load();
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [offset, imageFilter, originFilter, parentFilter, windowFilter, debouncedSearch]);
 
+    // Auto-refresh the current view without resetting filters/pagination.
+    const loadRef = useRef(load);
+    loadRef.current = load;
     useEffect(() => {
         if (!autoRefresh) return;
-        const id = setInterval(() => void load(true), 5000);
+        const id = setInterval(() => void loadRef.current(true), 5000);
         return () => clearInterval(id);
     }, [autoRefresh]);
 
-    const distinct = (pick: (e: AuditEvent) => string | undefined) =>
-        [ALL, ...Array.from(new Set(events.map(pick).filter((v): v is string => !!v))).sort()];
-
-    const images = useMemo(() => distinct((e) => e.hookedImage), [events]);
-    const parents = useMemo(() => distinct((e) => e.parentProcessName), [events]);
-    const windows = useMemo(() => distinct((e) => e.window), [events]);
-
-    const filtered = useMemo(() => {
-        const q = search.trim().toLowerCase();
-        return events.filter((e) => {
-            if (imageFilter !== ALL && e.hookedImage !== imageFilter) return false;
-            if (originFilter !== ALL && e.origin !== originFilter) return false;
-            if (parentFilter !== ALL && (e.parentProcessName ?? "") !== parentFilter) return false;
-            if (windowFilter !== ALL && e.window !== windowFilter) return false;
-            if (!q) return true;
-            const hay = [e.hookedImage, e.commandLine, e.user, e.parentProcessName, e.parentProcessPath, e.origin, e.window, ...e.scripts.map((s) => `${s.originalPath ?? ""} ${s.kind} ${s.language} ${s.note ?? ""}`)].join(" ").toLowerCase();
-            return hay.includes(q);
-        });
-    }, [events, search, imageFilter, originFilter, parentFilter, windowFilter]);
+    function setFilter(setter: (v: string) => void) {
+        return (v: string) => {
+            setter(v);
+            setOffset(0);
+        };
+    }
 
     const unreadable: RootDto[] = status?.roots.filter((r) => !r.readable) ?? [];
+    const imageOptions = [ALL, ...(status?.images ?? [])];
+    const parentOptions = [ALL, ...(status?.parents ?? [])];
+    const windowOptions = [ALL, ...(status?.windows ?? [])];
+
+    const pageStart = total === 0 ? 0 : offset + 1;
+    const pageEnd = Math.min(offset + pageSize, total);
 
     async function doClear() {
         setConfirmClear(false);
         try {
             await clearLogs();
+            setOffset(0);
             await load();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -218,16 +243,22 @@ export function App() {
                         <div className={styles.search}>
                             <Input placeholder="Filter by command, path, user, parent…" value={search} onChange={(_, d) => setSearch(d.value)} contentBefore={<DocumentTextRegular />} />
                         </div>
-                        <FilterDropdown label="Image" value={imageFilter} options={images} onChange={setImageFilter} />
-                        <FilterDropdown label="Origin" value={originFilter} options={[ALL, "CurrentUser", "System"]} onChange={setOriginFilter} />
-                        <FilterDropdown label="Parent" value={parentFilter} options={parents} onChange={setParentFilter} />
-                        <FilterDropdown label="Window" value={windowFilter} options={windows} onChange={setWindowFilter} />
+                        <FilterDropdown label="Image" value={imageFilter} options={imageOptions} onChange={setFilter(setImageFilter)} />
+                        <FilterDropdown label="Origin" value={originFilter} options={[ALL, "CurrentUser", "System"]} onChange={setFilter(setOriginFilter)} />
+                        <FilterDropdown label="Parent" value={parentFilter} options={parentOptions} onChange={setFilter(setParentFilter)} />
+                        <FilterDropdown label="Window" value={windowFilter} options={windowOptions} onChange={setFilter(setWindowFilter)} />
                         <div className={styles.grow} />
-                        <div style={{ textAlign: "right" }}>
-                            <Caption1 block>{filtered.length} of {events.length} event(s)</Caption1>
-                            {lastUpdated && <Caption1 block>updated {lastUpdated.toLocaleTimeString()}</Caption1>}
-                        </div>
-                        <Button icon={<DeleteRegular />} appearance="secondary" onClick={() => setConfirmClear(true)} disabled={events.length === 0}>Clear logs</Button>
+                        <Button icon={<DeleteRegular />} appearance="secondary" onClick={() => setConfirmClear(true)} disabled={total === 0}>Clear logs</Button>
+                    </div>
+
+                    <div className={styles.pager}>
+                        <Caption1>
+                            {total === 0 ? "No events" : `${pageStart}–${pageEnd} of ${total}`}
+                            {lastUpdated ? ` · updated ${lastUpdated.toLocaleTimeString()}` : ""}
+                        </Caption1>
+                        <div className={styles.grow} />
+                        <Button size="small" onClick={() => setOffset(Math.max(0, offset - pageSize))} disabled={offset === 0}>Prev</Button>
+                        <Button size="small" onClick={() => setOffset(offset + pageSize)} disabled={offset + pageSize >= total}>Next</Button>
                     </div>
 
                     {loading ? (
@@ -247,7 +278,7 @@ export function App() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {filtered.map((e) => (
+                                {events.map((e) => (
                                     <TableRow key={e.eventId} className={styles.clickable} onClick={() => setSelected(e)}>
                                         <TableCell>{fmtTime(e.timestampUtc)}</TableCell>
                                         <TableCell>{e.hookedImage}</TableCell>

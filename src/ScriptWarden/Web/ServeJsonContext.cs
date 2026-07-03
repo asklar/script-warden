@@ -16,6 +16,9 @@ internal sealed class ServeStatus
     public string Version { get; set; } = "";
     public int EventCount { get; set; }
     public List<RootDto> Roots { get; set; } = [];
+    public List<string> Images { get; set; } = [];
+    public List<string> Parents { get; set; } = [];
+    public List<string> Windows { get; set; } = [];
 }
 
 internal sealed class ClearResult

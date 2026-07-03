@@ -125,6 +125,9 @@ public static class AuditStore
         return deleted;
     }
 
+    /// <summary>Reads a single event file, tagging it with <paramref name="origin"/>. Null on failure.</summary>
+    public static AuditEvent? ReadEventFile(string file, AuditOrigin origin) => TryRead(file, origin);
+
     private static AuditEvent? TryRead(string file, AuditOrigin origin)
     {
         try
