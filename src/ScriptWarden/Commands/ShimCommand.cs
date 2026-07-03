@@ -69,18 +69,19 @@ internal static class ShimCommand
 
         string root = DataRoots.CurrentUserRoot();
         var identity = ProcessDetails.GetIdentity();
-        var parent = ProcessDetails.GetParent();
+        List<ProcessRef> ancestors = ProcessDetails.GetAncestors();
+        ProcessRef? parent = ancestors.Count > 0 ? ancestors[0] : null;
         string hookedImage = SafeFileName(resolvedTarget ?? targetPath);
 
         // Honor exclusions (e.g. don't audit when launched by copilot.exe). Excluded launches still
         // run transparently; we simply skip capture + logging.
         WardenConfig config = ConfigStore.Load(root);
-        if (config.IsExcluded(hookedImage, parent.Name))
+        if (config.IsExcluded(hookedImage, parent?.Name))
         {
             return TransparentLauncher.WaitForExit(started);
         }
 
-        AuditEvent ev = BuildEvent(resolvedTarget ?? targetPath, interpreterArgs, childCommandLine, started.Pid, identity, parent, hookedImage);
+        AuditEvent ev = BuildEvent(resolvedTarget ?? targetPath, interpreterArgs, childCommandLine, started.Pid, identity, ancestors, hookedImage);
 
         // Capture + write the initial record while the child runs (visible immediately, even for
         // long-lived interactive shells). All best-effort.
@@ -110,9 +111,10 @@ internal static class ShimCommand
         string commandLine,
         int childPid,
         ProcessDetails.Identity identity,
-        ProcessDetails.ParentInfo parent,
+        List<ProcessRef> ancestors,
         string hookedImage)
     {
+        ProcessRef? parent = ancestors.Count > 0 ? ancestors[0] : null;
         return new AuditEvent
         {
             EventId = Guid.NewGuid().ToString(),
@@ -127,9 +129,10 @@ internal static class ShimCommand
             SessionId = identity.SessionId,
             ShimProcessId = Environment.ProcessId,
             ChildProcessId = childPid,
-            ParentProcessId = parent.Pid,
-            ParentProcessName = parent.Name,
-            ParentProcessPath = parent.Path,
+            ParentProcessId = parent?.Pid ?? 0,
+            ParentProcessName = parent?.Name,
+            ParentProcessPath = parent?.Path,
+            Ancestors = ancestors,
             Window = ProcessDetails.GetWindowVisibility(),
         };
     }

@@ -123,6 +123,24 @@ function windowColor(w: string): "success" | "warning" | "subtle" {
     return "subtle";
 }
 
+// The window state matters because a hidden (no-window) launch is how scripts run silently in the
+// background, whereas a visible one is an interactive console the user could see.
+function windowLabel(w: string): string {
+    if (w === "Windowed") return "Visible";
+    if (w === "NoWindow") return "Hidden";
+    return w || "Unknown";
+}
+
+// Immediate parent → … → root, so you can see the full chain that led to the launch (e.g. a
+// scheduled task or management agent several hops up).
+function ancestryText(e: AuditEvent): string {
+    const chain = (e.ancestors ?? []).map((a) => `${a.name || "?"} (${a.pid})`);
+    if (chain.length === 0) {
+        return e.parentProcessName ? `${e.parentProcessName} (${e.parentProcessId})` : "(unknown)";
+    }
+    return chain.join("  →  ");
+}
+
 export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThemeChange: (m: ThemeMode) => void }) {
     const styles = useStyles();
     const [tab, setTab] = useState("audit");
@@ -236,7 +254,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                 <div>
                     <Title2>script-warden</Title2>
                     <div>
-                        <Caption1>Scripts run through Windows interpreters, captured via IFEO{status ? ` — v${status.version}` : ""}</Caption1>
+                        <Caption1>Scripts that ran on this machine — including ones IT or automation started in the background{status ? ` — v${status.version}` : ""}</Caption1>
                     </div>
                 </div>
                 <div className={styles.headerActions}>
@@ -268,8 +286,8 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
             {unreadable.map((r) => (
                 <MessageBar key={r.path} intent="warning">
                     <MessageBarBody>
-                        <MessageBarTitle>{r.origin} audit root not readable</MessageBarTitle>
-                        {r.path}{r.error ? ` — ${r.error}` : ""}. Re-run the viewer elevated to include it.
+                        <MessageBarTitle>Can't read {r.origin} data</MessageBarTitle>
+                        Scripts recorded under {r.path}{r.error ? ` (${r.error})` : ""} are hidden. Re-run elevated to include them.
                     </MessageBarBody>
                 </MessageBar>
             ))}
@@ -286,10 +304,10 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                         <div className={styles.search}>
                             <Input placeholder="Filter by command, path, user, parent…" value={search} onChange={(_, d) => setSearch(d.value)} contentBefore={<DocumentTextRegular />} />
                         </div>
-                        <FilterDropdown label="Image" value={imageFilter} options={imageOptions} onChange={setFilter(setImageFilter)} />
+                        <FilterDropdown label="Interpreter" value={imageFilter} options={imageOptions} onChange={setFilter(setImageFilter)} />
                         <FilterDropdown label="Origin" value={originFilter} options={[ALL, "CurrentUser", "System"]} onChange={setFilter(setOriginFilter)} />
                         <FilterDropdown label="Parent" value={parentFilter} options={parentOptions} onChange={setFilter(setParentFilter)} />
-                        <FilterDropdown label="Window" value={windowFilter} options={windowOptions} onChange={setFilter(setWindowFilter)} />
+                        <FilterDropdown label="Visibility" value={windowFilter} options={windowOptions} onChange={setFilter(setWindowFilter)} format={windowLabel} />
                         <div className={styles.grow} />
                         <Button icon={<DeleteRegular />} appearance="secondary" onClick={() => setConfirmClear(true)} disabled={total === 0}>Clear logs</Button>
                     </div>
@@ -317,9 +335,9 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                             <TableHeader>
                                 <TableRow>
                                     <TableHeaderCell>Time (UTC)</TableHeaderCell>
-                                    <TableHeaderCell>Image</TableHeaderCell>
+                                    <TableHeaderCell>Interpreter</TableHeaderCell>
                                     <TableHeaderCell>Origin</TableHeaderCell>
-                                    <TableHeaderCell>Window</TableHeaderCell>
+                                    <TableHeaderCell>Visibility</TableHeaderCell>
                                     <TableHeaderCell>User</TableHeaderCell>
                                     <TableHeaderCell>Parent</TableHeaderCell>
                                     <TableHeaderCell>Scripts</TableHeaderCell>
@@ -333,7 +351,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                                         <TableCell>{fmtTime(e.timestampUtc)}</TableCell>
                                         <TableCell>{e.hookedImage}</TableCell>
                                         <TableCell><Badge appearance="tint" color={e.origin === "System" ? "danger" : "informative"}>{e.origin}</Badge></TableCell>
-                                        <TableCell><Badge appearance="tint" color={windowColor(e.window)}>{e.window}</Badge></TableCell>
+                                        <TableCell><Badge appearance="tint" color={windowColor(e.window)}>{windowLabel(e.window)}</Badge></TableCell>
                                         <TableCell>{e.user}</TableCell>
                                         <TableCell>{e.parentProcessName}</TableCell>
                                         <TableCell>
@@ -373,12 +391,13 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
     );
 }
 
-function FilterDropdown({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (v: string) => void }) {
+function FilterDropdown({ label, value, options, onChange, format }: { label: string; value: string; options: string[]; onChange: (v: string) => void; format?: (v: string) => string }) {
+    const display = (v: string) => (v === ALL ? "all" : format ? format(v) : v);
     return (
         <div>
             <Caption1 block>{label}</Caption1>
-            <Dropdown value={value} selectedOptions={[value]} onOptionSelect={(_, d) => onChange(d.optionValue ?? ALL)}>
-                {options.map((o) => (<Option key={o} value={o}>{o}</Option>))}
+            <Dropdown value={display(value)} selectedOptions={[value]} onOptionSelect={(_, d) => onChange(d.optionValue ?? ALL)}>
+                {options.map((o) => (<Option key={o} value={o}>{display(o)}</Option>))}
             </Dropdown>
         </div>
     );
@@ -413,15 +432,15 @@ function SettingsView({ onError }: { onError: (e: string) => void }) {
     return (
         <div className={styles.settings}>
             <div className={styles.section}>
-                <Subtitle2>Auditing</Subtitle2>
-                <Switch label={config.enabled ? "Enabled" : "Disabled (launches still run, nothing is recorded)"} checked={config.enabled} onChange={(_, d) => void save({ ...config, enabled: d.checked })} />
+                <Subtitle2>Recording</Subtitle2>
+                <Switch label={config.enabled ? "On — scripts are being recorded" : "Off — scripts still run, but nothing is recorded"} checked={config.enabled} onChange={(_, d) => void save({ ...config, enabled: d.checked })} />
             </div>
 
             <Divider />
 
             <ExclusionList
-                title="Excluded parent processes"
-                hint="Launches whose parent process matches are not audited (e.g. copilot.exe)."
+                title="Ignored by parent process"
+                hint="Skip anything started by these programs — useful to quiet your own tools (e.g. copilot.exe)."
                 placeholder="copilot.exe"
                 values={config.excludedParents}
                 onChange={(v) => void save({ ...config, excludedParents: v })}
@@ -430,8 +449,8 @@ function SettingsView({ onError }: { onError: (e: string) => void }) {
             <Divider />
 
             <ExclusionList
-                title="Excluded images"
-                hint="Hooked interpreters to skip entirely (e.g. cmd.exe)."
+                title="Ignored interpreters"
+                hint="Skip these interpreters entirely (e.g. cmd.exe)."
                 placeholder="cmd.exe"
                 values={config.excludedImages}
                 onChange={(v) => void save({ ...config, excludedImages: v })}
@@ -493,14 +512,16 @@ function EventDialog({ event, onClose }: { event: AuditEvent | null; onClose: ()
                                 <Text>{event.targetPath}</Text>
                                 <Text className={styles.label}>Command line</Text>
                                 <pre className={styles.mono}>{event.commandLine}</pre>
-                                <Text className={styles.label}>Window</Text>
-                                <Text>{event.window}</Text>
+                                <Text className={styles.label}>Visibility</Text>
+                                <Text>{windowLabel(event.window)}{event.window === "NoWindow" ? " — ran in the background, no console" : ""}</Text>
                                 <Text className={styles.label}>User</Text>
                                 <Text>{event.user}{event.userSid ? ` (${event.userSid})` : ""}</Text>
                                 <Text className={styles.label}>Session</Text>
                                 <Text>{event.sessionId}</Text>
-                                <Text className={styles.label}>Parent</Text>
+                                <Text className={styles.label}>Started by</Text>
                                 <Text>{event.parentProcessName} (pid {event.parentProcessId}){event.parentProcessPath ? ` — ${event.parentProcessPath}` : ""}</Text>
+                                <Text className={styles.label}>Launch chain</Text>
+                                <Text>{ancestryText(event)}</Text>
                                 <Text className={styles.label}>Working dir</Text>
                                 <Text>{event.workingDirectory}</Text>
                                 <Text className={styles.label}>Origin</Text>

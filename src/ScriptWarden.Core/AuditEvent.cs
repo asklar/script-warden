@@ -35,6 +35,14 @@ public sealed class CapturedScript
     public string? Note { get; set; }
 }
 
+/// <summary>A reference to a process in an ancestor chain.</summary>
+public sealed class ProcessRef
+{
+    public int Pid { get; set; }
+    public string? Name { get; set; }
+    public string? Path { get; set; }
+}
+
 /// <summary>
 /// One audit record describing a single launch of a hooked interpreter, intercepted by the shim.
 /// Serialized as a standalone JSON file under the audit root's <c>events\</c> directory.
@@ -92,6 +100,12 @@ public sealed class AuditEvent
 
     /// <summary>Parent process full image path, if resolvable.</summary>
     public string? ParentProcessPath { get; set; }
+
+    /// <summary>
+    /// Best-effort process ancestor chain, immediate parent first. Shown in the details view; the
+    /// main list shows only the immediate parent. May be partial (protected/exited processes).
+    /// </summary>
+    public List<ProcessRef> Ancestors { get; set; } = [];
 
     /// <summary>Exit code of the child interpreter, filled after it exits.</summary>
     public int? ExitCode { get; set; }

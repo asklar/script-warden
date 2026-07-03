@@ -25,6 +25,7 @@ export interface AuditEvent {
     parentProcessName?: string;
     parentProcessId: number;
     parentProcessPath?: string;
+    ancestors: { pid: number; name?: string; path?: string }[];
     exitCode?: number;
     durationMs?: number;
     scripts: CapturedScript[];
