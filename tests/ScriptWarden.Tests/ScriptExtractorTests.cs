@@ -166,4 +166,38 @@ public class ScriptExtractorTests
         Assert.Contains(results, r => r.Kind == ScriptKind.EncodedCommand);
         Assert.Contains(results, r => r.Kind == ScriptKind.FileReference && r.FilePath == @"C:\ProgramData\Corp\run.ps1");
     }
+
+    [Fact]
+    public void Heuristic_ForwardSlashPath_IsCaptured()
+    {
+        var results = ScriptExtractor.Extract("powershell.exe", ["-Command", "& 'C:/it/x.ps1'"], @"C:\w");
+        Assert.Contains(results, r => r.Kind == ScriptKind.FileReference &&
+            r.OriginalPath == "C:/it/x.ps1");
+    }
+
+    [Fact]
+    public void Heuristic_MultipleEmbeddedPaths_AllCaptured()
+    {
+        var results = ScriptExtractor.Extract("powershell.exe",
+            ["-Command", @"& 'C:\a.ps1'; & 'C:\b.cmd'"], @"C:\w");
+        Assert.Contains(results, r => r.FilePath == @"C:\a.ps1");
+        Assert.Contains(results, r => r.FilePath == @"C:\b.cmd");
+    }
+
+    [Fact]
+    public void Cmd_InlineInvokingPowerShellScript_CapturesReferencedFile()
+    {
+        // cmd /c powershell -File C:\it\y.ps1  -> inline batch + the referenced .ps1 (via heuristic)
+        var results = ScriptExtractor.Extract("cmd.exe",
+            ["/c", "powershell", "-File", @"C:\it\y.ps1"], @"C:\w");
+        Assert.Contains(results, r => r.Kind == ScriptKind.InlineCommand && r.Language == ScriptLanguage.Batch);
+        Assert.Contains(results, r => r.Kind == ScriptKind.FileReference && r.FilePath == @"C:\it\y.ps1");
+    }
+
+    [Fact]
+    public void File_And_Heuristic_DoNotDuplicate()
+    {
+        var results = ScriptExtractor.Extract("powershell.exe", ["-File", @"C:\it\deploy.ps1"], @"C:\w");
+        Assert.Single(results, r => r.FilePath == @"C:\it\deploy.ps1");
+    }
 }
