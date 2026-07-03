@@ -16,6 +16,7 @@ x86/
 # Node / web
 web/node_modules/
 web/dist/
+web/*.tsbuildinfo
 node_modules/
 npm-debug.log*
 

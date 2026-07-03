@@ -1,0 +1,21 @@
+# Normalize line endings; let Git decide text vs binary by default.
+* text=auto
+
+*.cs        text
+*.csproj    text
+*.slnx      text
+*.json      text
+*.ts        text
+*.tsx       text
+*.md        text
+*.yml       text
+*.yaml      text
+*.manifest  text
+*.html      text
+
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.exe  binary
+*.dll  binary
+*.pdb  binary
