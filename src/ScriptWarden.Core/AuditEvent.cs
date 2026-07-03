@@ -95,9 +95,7 @@ public sealed class AuditEvent
     /// <summary>Scripts/commands captured from this launch.</summary>
     public List<CapturedScript> Scripts { get; set; } = [];
 
-    /// <summary>
-    /// Which root this event was read from. Not serialized; set by the reader.
-    /// </summary>
-    [JsonIgnore]
+    /// <summary>Which root this event was read from. Set by the reader; persisted value is ignored on read.</summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<AuditOrigin>))]
     public AuditOrigin Origin { get; set; } = AuditOrigin.Unknown;
 }

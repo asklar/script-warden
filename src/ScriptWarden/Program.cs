@@ -33,6 +33,9 @@ try
         case "diagnose":
             return DiagnoseCommand.Run(args);
 
+        case "serve":
+            return ScriptWarden.Web.ServeCommand.Run(args);
+
         case "help":
         case "h":
         case "?":
