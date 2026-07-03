@@ -15,6 +15,12 @@ import {
     Switch,
     Link,
     Divider,
+    Menu,
+    MenuTrigger,
+    MenuButton,
+    MenuPopover,
+    MenuList,
+    MenuItemRadio,
     TabList,
     Tab,
     Table,
@@ -41,6 +47,9 @@ import {
     DeleteRegular,
     DismissRegular,
     AddRegular,
+    WeatherSunnyRegular,
+    WeatherMoonRegular,
+    DesktopRegular,
 } from "@fluentui/react-icons";
 import {
     AuditEvent,
@@ -80,6 +89,14 @@ const useStyles = makeStyles({
 
 const ALL = "all";
 
+export type ThemeMode = "light" | "dark" | "system";
+
+function themeIcon(mode: ThemeMode) {
+    if (mode === "light") return <WeatherSunnyRegular />;
+    if (mode === "dark") return <WeatherMoonRegular />;
+    return <DesktopRegular />;
+}
+
 function fmtTime(iso: string): string {
     if (!iso) return "";
     return iso.replace("T", " ").slice(0, 19) + " UTC";
@@ -106,7 +123,7 @@ function windowColor(w: string): "success" | "warning" | "subtle" {
     return "subtle";
 }
 
-export function App() {
+export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThemeChange: (m: ThemeMode) => void }) {
     const styles = useStyles();
     const [tab, setTab] = useState("audit");
 
@@ -225,6 +242,21 @@ export function App() {
                 <div className={styles.headerActions}>
                     <Switch label="Auto-refresh" checked={autoRefresh} onChange={(_, d) => setAutoRefresh(d.checked)} />
                     <Button icon={<ArrowClockwiseRegular />} onClick={() => void load()} appearance="secondary">Refresh</Button>
+                    <Menu
+                        checkedValues={{ theme: [themeMode] }}
+                        onCheckedValueChange={(_, d) => onThemeChange(d.checkedItems[0] as ThemeMode)}
+                    >
+                        <MenuTrigger disableButtonEnhancement>
+                            <MenuButton appearance="secondary" icon={themeIcon(themeMode)}>Theme</MenuButton>
+                        </MenuTrigger>
+                        <MenuPopover>
+                            <MenuList>
+                                <MenuItemRadio name="theme" value="light" icon={<WeatherSunnyRegular />}>Light</MenuItemRadio>
+                                <MenuItemRadio name="theme" value="dark" icon={<WeatherMoonRegular />}>Dark</MenuItemRadio>
+                                <MenuItemRadio name="theme" value="system" icon={<DesktopRegular />}>System</MenuItemRadio>
+                            </MenuList>
+                        </MenuPopover>
+                    </Menu>
                 </div>
             </div>
 
