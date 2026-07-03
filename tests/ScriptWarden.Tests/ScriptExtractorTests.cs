@@ -118,4 +118,52 @@ public class ScriptExtractorTests
     {
         Assert.Empty(ScriptExtractor.Extract("cmd.exe", [], @"C:\w"));
     }
+
+    [Fact]
+    public void PowerShell_PositionalCallOperator_CapturesEmbeddedScriptFile()
+    {
+        // The real-world ConfigMgr pattern: no -File/-Command, a positional "& 'C:\...ps1'".
+        var results = ScriptExtractor.Extract(
+            "powershell.exe",
+            ["-NoLogo", "-NonInteractive", "-NoProfile", "-ExecutionPolicy", "Bypass", @"& 'C:\Windows\CCM\SystemTemp\56c78008.ps1'"],
+            @"C:\Windows\system32");
+
+        Assert.Contains(results, r => r.Kind == ScriptKind.FileReference &&
+            r.FilePath!.EndsWith(@"\Windows\CCM\SystemTemp\56c78008.ps1", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(results, r => r.Kind == ScriptKind.InlineCommand);
+    }
+
+    [Fact]
+    public void PowerShell_CommandWithEmbeddedQuotedPath_CapturesBoth()
+    {
+        var results = ScriptExtractor.Extract("powershell.exe", ["-Command", @"& 'C:\it\a.ps1' -Verbose"], @"C:\w");
+        Assert.Contains(results, r => r.Kind == ScriptKind.InlineCommand);
+        Assert.Contains(results, r => r.Kind == ScriptKind.FileReference && r.FilePath == @"C:\it\a.ps1");
+    }
+
+    [Fact]
+    public void PowerShell_ExecutionPolicyValue_NotMistakenForCommand()
+    {
+        var results = ScriptExtractor.Extract("powershell.exe", ["-ExecutionPolicy", "Bypass", "-File", @"C:\x.ps1"], @"C:\w");
+        var fileRefs = results.Where(r => r.Kind == ScriptKind.FileReference).ToList();
+        Assert.Single(fileRefs);
+        Assert.Equal(@"C:\x.ps1", fileRefs[0].FilePath);
+        Assert.DoesNotContain(results, r => r.Kind == ScriptKind.InlineCommand);
+    }
+
+    [Fact]
+    public void Heuristic_UncScriptPath_IsCaptured()
+    {
+        var results = ScriptExtractor.Extract("powershell.exe", ["-Command", @"\\server\share\deploy.ps1"], @"C:\w");
+        Assert.Contains(results, r => r.Kind == ScriptKind.FileReference && r.OriginalPath == @"\\server\share\deploy.ps1");
+    }
+
+    [Fact]
+    public void EncodedCommand_WithEmbeddedPath_CapturesInnerScript()
+    {
+        string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(@"& 'C:\ProgramData\Corp\run.ps1'"));
+        var results = ScriptExtractor.Extract("powershell.exe", ["-EncodedCommand", encoded], @"C:\w");
+        Assert.Contains(results, r => r.Kind == ScriptKind.EncodedCommand);
+        Assert.Contains(results, r => r.Kind == ScriptKind.FileReference && r.FilePath == @"C:\ProgramData\Corp\run.ps1");
+    }
 }

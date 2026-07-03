@@ -71,7 +71,28 @@ public sealed class CaptureAndStoreTests : IDisposable
         var captured = Capturer.Capture(_root, "powershell.exe", ["-File", Path.Combine(_work, "nope.ps1")], _work);
         var cs = Assert.Single(captured);
         Assert.Equal("", cs.Sha256);
-        Assert.Contains("file not found", cs.Note!);
+        Assert.Contains("not found", cs.Note!);
+    }
+
+    [Fact]
+    public void Capture_NonexistentEmbeddedPath_StillRecorded()
+    {
+        // A ConfigMgr-style positional call operator referencing a script that no longer exists.
+        var captured = Capturer.Capture(
+            _root,
+            "powershell.exe",
+            ["-NoProfile", "-ExecutionPolicy", "Bypass", @"& 'C:\Windows\CCM\SystemTemp\ghost-abc.ps1'"],
+            _work);
+
+        // The embedded .ps1 reference is recorded even though the file is gone.
+        Assert.Contains(captured, c =>
+            c.Kind == ScriptKind.FileReference &&
+            c.OriginalPath!.EndsWith(@"ghost-abc.ps1", StringComparison.OrdinalIgnoreCase) &&
+            c.Sha256 == "" &&
+            c.Note!.Contains("not found"));
+
+        // The inline wrapper command is also captured, with content stored.
+        Assert.Contains(captured, c => c.Kind == ScriptKind.InlineCommand && c.Sha256 != "");
     }
 
     [Fact]

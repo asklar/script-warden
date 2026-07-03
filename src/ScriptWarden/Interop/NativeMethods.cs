@@ -120,4 +120,13 @@ internal static partial class NativeMethods
     [LibraryImport("kernel32.dll", EntryPoint = "QueryFullProcessImageNameW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, char[] lpExeName, ref uint lpdwSize);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "SearchPathW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    public static partial uint SearchPath(
+        string? lpPath,
+        string lpFileName,
+        string? lpExtension,
+        uint nBufferLength,
+        char[] lpBuffer,
+        IntPtr lpFilePart);
 }

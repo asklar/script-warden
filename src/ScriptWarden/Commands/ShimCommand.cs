@@ -38,6 +38,10 @@ internal static class ShimCommand
         string targetPath = args[1];
         string[] interpreterArgs = args.Length > 2 ? args[2..] : [];
 
+        // Windows may hand us a bare interpreter name (e.g. "pwsh.exe") that relies on PATH. Resolve
+        // it to a full path so CreateProcess (which does not search PATH for lpApplicationName) works.
+        string? resolvedTarget = TransparentLauncher.ResolveImagePath(targetPath);
+
         // Reconstruct the child's command line verbatim: strip our own exe token and the "shim"
         // token, preserving the exact original quoting of the remainder.
         string childCommandLine = CommandLineParser.StripLeadingTokens(Environment.CommandLine, 2);
@@ -50,7 +54,7 @@ internal static class ShimCommand
         StartedProcess started;
         try
         {
-            started = TransparentLauncher.Start(targetPath, childCommandLine);
+            started = TransparentLauncher.Start(resolvedTarget, childCommandLine);
         }
         catch (Exception ex)
         {
@@ -61,7 +65,7 @@ internal static class ShimCommand
         }
 
         string root = DataRoots.CurrentUserRoot();
-        AuditEvent ev = BuildEvent(targetPath, interpreterArgs, childCommandLine, started.Pid);
+        AuditEvent ev = BuildEvent(resolvedTarget ?? targetPath, interpreterArgs, childCommandLine, started.Pid);
 
         // Capture + write the initial record while the child runs (visible immediately, even for
         // long-lived interactive shells). All best-effort.

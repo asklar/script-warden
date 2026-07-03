@@ -38,23 +38,25 @@ public static class Capturer
                 }
                 else if (e.FilePath is not null)
                 {
-                    if (File.Exists(e.FilePath))
+                    // Attempt the read directly (rather than File.Exists first) so we can distinguish
+                    // "not found" from "access denied". A referenced path that doesn't exist yet (e.g.
+                    // an output file the script will create) or that we can't read is still recorded.
+                    try
                     {
                         byte[] content = ReadCapped(e.FilePath, out bool truncated);
                         captured.Add(store.StoreBytes(content, e.Extension, e.Kind, e.Language, e.OriginalPath, e.Note, truncated));
                     }
-                    else
+                    catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
                     {
-                        captured.Add(new CapturedScript
-                        {
-                            Kind = e.Kind,
-                            Language = e.Language,
-                            Extension = ScriptStore.NormalizeExtension(e.Extension),
-                            OriginalPath = e.OriginalPath,
-                            Sha256 = "",
-                            SizeBytes = 0,
-                            Note = Combine(e.Note, "file not found on disk"),
-                        });
+                        captured.Add(Unresolved(e, "referenced path not found (may be created at runtime, or already deleted)"));
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        captured.Add(Unresolved(e, "access denied reading referenced path"));
+                    }
+                    catch (IOException ex)
+                    {
+                        captured.Add(Unresolved(e, "could not read referenced path: " + ex.Message));
                     }
                 }
             }
@@ -72,6 +74,17 @@ public static class Capturer
 
         return captured;
     }
+
+    private static CapturedScript Unresolved(ExtractionResult e, string note) => new()
+    {
+        Kind = e.Kind,
+        Language = e.Language,
+        Extension = ScriptStore.NormalizeExtension(e.Extension),
+        OriginalPath = e.OriginalPath,
+        Sha256 = "",
+        SizeBytes = 0,
+        Note = Combine(e.Note, note),
+    };
 
     private static byte[] ReadCapped(string path, out bool truncated)
     {
