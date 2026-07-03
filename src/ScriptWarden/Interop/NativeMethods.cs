@@ -136,6 +136,21 @@ internal static partial class NativeMethods
     [LibraryImport("kernel32.dll", SetLastError = false)]
     public static partial IntPtr GetConsoleWindow();
 
+    [LibraryImport("kernel32.dll", EntryPoint = "GetCommandLineW")]
+    public static partial IntPtr GetCommandLineW();
+
+    /// <summary>
+    /// Returns the raw process command line exactly as Windows passed it. Unlike
+    /// <c>Environment.CommandLine</c> (which, under Native AOT, is re-serialized from argv and loses
+    /// the original quoting), this is byte-for-byte what the OS provided — essential for forwarding
+    /// an interpreter's command line verbatim.
+    /// </summary>
+    public static string GetRawCommandLine()
+    {
+        IntPtr ptr = GetCommandLineW();
+        return ptr == IntPtr.Zero ? "" : Marshal.PtrToStringUni(ptr) ?? "";
+    }
+
     [LibraryImport("kernel32.dll", EntryPoint = "GetStartupInfoW")]
     public static partial void GetStartupInfo(out STARTUPINFOW lpStartupInfo);
 

@@ -35,6 +35,15 @@ public class CommandLineParserTests
     }
 
     [Fact]
+    public void StripLeadingTokens_PreservesComplexCmdQuotingVerbatim()
+    {
+        // The exact class of command line that broke: nested "" quotes + && for a cmd /c invocation.
+        string raw = "\"C:\\pf\\script-warden.exe\" shim \"C:\\Windows\\System32\\cmd.exe\" /c \"call \"\"vc.bat\"\" x64 && link @rsp\" \"a b\"";
+        string remainder = CommandLineParser.StripLeadingTokens(raw, 2);
+        Assert.Equal("\"C:\\Windows\\System32\\cmd.exe\" /c \"call \"\"vc.bat\"\" x64 && link @rsp\" \"a b\"", remainder);
+    }
+
+    [Fact]
     public void StripLeadingTokens_BeyondEnd_ReturnsEmpty()
     {
         Assert.Equal("", CommandLineParser.StripLeadingTokens("one two", 5));

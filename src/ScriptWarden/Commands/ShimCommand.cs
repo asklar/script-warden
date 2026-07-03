@@ -43,8 +43,10 @@ internal static class ShimCommand
         string? resolvedTarget = TransparentLauncher.ResolveImagePath(targetPath);
 
         // Reconstruct the child's command line verbatim: strip our own exe token and the "shim"
-        // token, preserving the exact original quoting of the remainder.
-        string childCommandLine = CommandLineParser.StripLeadingTokens(Environment.CommandLine, 2);
+        // token, preserving the exact original quoting of the remainder. We must use the RAW OS
+        // command line (GetCommandLineW) — under Native AOT, Environment.CommandLine is re-quoted
+        // from argv, which corrupts cmd-style quoting (e.g. "" -> \") and breaks the relaunch.
+        string childCommandLine = CommandLineParser.StripLeadingTokens(NativeMethods.GetRawCommandLine(), 2);
         if (string.IsNullOrEmpty(childCommandLine))
         {
             childCommandLine = QuoteIfNeeded(targetPath);
