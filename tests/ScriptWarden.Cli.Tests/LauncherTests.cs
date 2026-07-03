@@ -1,3 +1,4 @@
+using ScriptWarden.Core;
 using ScriptWarden.Interop;
 
 namespace ScriptWarden.Cli.Tests;
@@ -58,5 +59,12 @@ public class LauncherTests
         // command line (which does search PATH).
         StartedProcess p = TransparentLauncher.Start(null, "cmd.exe /c exit 5");
         Assert.Equal(5, TransparentLauncher.WaitForExit(p));
+    }
+
+    [Fact]
+    public void GetWindowVisibility_ReturnsDefinedValue()
+    {
+        WindowVisibility w = Interop.ProcessDetails.GetWindowVisibility();
+        Assert.True(Enum.IsDefined(w));
     }
 }

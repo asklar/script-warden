@@ -36,6 +36,12 @@ internal static partial class ServeCommand
             TryOpenBrowser(url);
         }
 
+        // Prime the newest events synchronously for a fast first paint, then index the rest (and
+        // keep watching for new events) on a background thread so `serve` responds immediately even
+        // with a large audit trail.
+        Cache.Prime(200);
+        Cache.Start();
+
         try
         {
             new HttpServer(port, Route).Run();
@@ -52,11 +58,25 @@ internal static partial class ServeCommand
     {
         try
         {
+            if (req.Path == "/api/clear")
+            {
+                return string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase)
+                    ? ApiClear()
+                    : HttpResponse.Text("Method Not Allowed", 405);
+            }
+
+            if (req.Path == "/api/config")
+            {
+                return string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase)
+                    ? ApiSetConfig(req)
+                    : ApiGetConfig();
+            }
+
             return req.Path switch
             {
                 "/" or "/index.html" => ServeIndex(),
                 "/api/status" => ApiStatus(),
-                "/api/events" => ApiEvents(),
+                "/api/events" => ApiEvents(req),
                 "/api/script" => ApiScript(req),
                 _ => HttpResponse.Text("Not Found", 404),
             };
@@ -67,13 +87,70 @@ internal static partial class ServeCommand
         }
     }
 
+    private static HttpResponse ApiClear()
+    {
+        int events = 0;
+        int scripts = 0;
+        var cleared = new List<string>();
+        foreach (ResolvedRoot root in DataRoots.ForViewer())
+        {
+            if (!root.Readable)
+            {
+                continue;
+            }
+            (int e, int s) = AuditStore.ClearRoot(root.Path);
+            events += e;
+            scripts += s;
+            if (e > 0 || s > 0)
+            {
+                cleared.Add(root.Origin.ToString());
+            }
+        }
+
+        var result = new ClearResult { Events = events, Scripts = scripts, Roots = cleared };
+        return HttpResponse.Json(JsonSerializer.Serialize(result, ServeJsonContext.Default.ClearResult));
+    }
+
+    private static HttpResponse ApiGetConfig()
+    {
+        WardenConfig config = ConfigStore.Load(DataRoots.CurrentUserRoot());
+        return HttpResponse.Json(JsonSerializer.Serialize(config, AuditJsonContext.Default.WardenConfig));
+    }
+
+    private static HttpResponse ApiSetConfig(HttpRequest req)
+    {
+        WardenConfig? config;
+        try
+        {
+            config = JsonSerializer.Deserialize(req.Body, AuditJsonContext.Default.WardenConfig);
+        }
+        catch (Exception ex)
+        {
+            return HttpResponse.Text($"invalid config: {ex.Message}", 400);
+        }
+
+        if (config is null)
+        {
+            return HttpResponse.Text("invalid config", 400);
+        }
+
+        ConfigStore.Save(DataRoots.CurrentUserRoot(), config);
+        return HttpResponse.Json(JsonSerializer.Serialize(config, AuditJsonContext.Default.WardenConfig));
+    }
+
+    private static readonly EventCache Cache = new();
+
     private static HttpResponse ApiStatus()
     {
-        List<AuditEvent> events = AuditStore.ReadAllForViewer(out IReadOnlyList<ResolvedRoot> roots);
+        List<AuditEvent> events = Cache.Snapshot();
+        IReadOnlyList<ResolvedRoot> roots = Cache.Roots;
+        AuditFacets facets = AuditQuery.Facets(events);
         var status = new ServeStatus
         {
             Version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0",
             EventCount = events.Count,
+            TotalOnDisk = Cache.TotalOnDisk,
+            Indexing = Cache.Indexing,
             Roots = roots.Select(r => new RootDto
             {
                 Path = r.Path,
@@ -82,15 +159,34 @@ internal static partial class ServeCommand
                 Readable = r.Readable,
                 Error = r.Error,
             }).ToList(),
+            Images = facets.Images,
+            Parents = facets.Parents,
+            Windows = facets.Windows,
         };
         return HttpResponse.Json(JsonSerializer.Serialize(status, ServeJsonContext.Default.ServeStatus));
     }
 
-    private static HttpResponse ApiEvents()
+    private static HttpResponse ApiEvents(HttpRequest req)
     {
-        List<AuditEvent> events = AuditStore.ReadAllForViewer(out _);
-        return HttpResponse.Json(JsonSerializer.Serialize(events, AuditJsonContext.Default.ListAuditEvent));
+        List<AuditEvent> events = Cache.Snapshot();
+        int offset = ParseInt(req.Query.GetValueOrDefault("offset"), 0);
+        int limit = Math.Clamp(ParseInt(req.Query.GetValueOrDefault("limit"), 100), 1, 500);
+
+        EventsPage page = AuditQuery.Query(
+            events,
+            image: req.Query.GetValueOrDefault("image"),
+            origin: req.Query.GetValueOrDefault("origin"),
+            parent: req.Query.GetValueOrDefault("parent"),
+            window: req.Query.GetValueOrDefault("window"),
+            search: req.Query.GetValueOrDefault("q"),
+            offset: offset,
+            limit: limit);
+
+        return HttpResponse.Json(JsonSerializer.Serialize(page, AuditJsonContext.Default.EventsPage));
     }
+
+    private static int ParseInt(string? value, int fallback) =>
+        int.TryParse(value, out int n) ? n : fallback;
 
     private static HttpResponse ApiScript(HttpRequest req)
     {

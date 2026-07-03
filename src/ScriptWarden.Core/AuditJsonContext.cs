@@ -13,8 +13,13 @@ namespace ScriptWarden.Core;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(AuditEvent))]
 [JsonSerializable(typeof(CapturedScript))]
+[JsonSerializable(typeof(ProcessRef))]
+[JsonSerializable(typeof(List<ProcessRef>))]
 [JsonSerializable(typeof(List<AuditEvent>))]
 [JsonSerializable(typeof(List<CapturedScript>))]
+[JsonSerializable(typeof(WardenConfig))]
+[JsonSerializable(typeof(EventsPage))]
+[JsonSerializable(typeof(AuditFacets))]
 public partial class AuditJsonContext : JsonSerializerContext
 {
 }

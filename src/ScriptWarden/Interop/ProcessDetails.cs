@@ -1,62 +1,82 @@
 using System.Diagnostics;
 using System.Security.Principal;
+using ScriptWarden.Core;
 
 namespace ScriptWarden.Interop;
 
-/// <summary>Best-effort details about the launching (parent) process and the current identity.</summary>
+/// <summary>Best-effort details about the launching (ancestor) processes and the current identity.</summary>
 internal static class ProcessDetails
 {
-    public readonly record struct ParentInfo(int Pid, string? Name, string? Path);
-
     public readonly record struct Identity(string? User, string? Sid, int SessionId);
 
-    public static ParentInfo GetParent()
+    /// <summary>
+    /// Walks the process ancestor chain (immediate parent first) using a single Toolhelp snapshot,
+    /// resolving each ancestor's full path best-effort. Bounded by <paramref name="maxDepth"/> and
+    /// guarded against cycles from PID reuse. May be partial for protected/exited processes.
+    /// </summary>
+    public static List<ProcessRef> GetAncestors(int maxDepth = 32)
     {
+        var chain = new List<ProcessRef>();
         try
         {
-            int myPid = Environment.ProcessId;
-            IntPtr snapshot = NativeMethods.CreateToolhelp32Snapshot(NativeMethods.TH32CS_SNAPPROCESS, 0);
-            if (snapshot == new IntPtr(-1))
-            {
-                return default;
-            }
+            Dictionary<int, (int Parent, string Name)> map = BuildProcessMap();
+            int pid = Environment.ProcessId;
+            var seen = new HashSet<int> { pid };
 
-            var map = new Dictionary<int, (int Parent, string Name)>();
-            try
+            for (int i = 0; i < maxDepth; i++)
             {
-                var entry = new NativeMethods.PROCESSENTRY32W();
-                unsafe
+                if (!map.TryGetValue(pid, out var cur))
                 {
-                    entry.dwSize = (uint)sizeof(NativeMethods.PROCESSENTRY32W);
+                    break;
+                }
+                int parent = cur.Parent;
+                if (parent == 0 || !seen.Add(parent))
+                {
+                    break; // reached the root or detected a cycle (PID reuse)
                 }
 
-                if (NativeMethods.Process32FirstW(snapshot, ref entry))
-                {
-                    do
-                    {
-                        map[(int)entry.th32ProcessID] = ((int)entry.th32ParentProcessID, ReadExeName(ref entry));
-                    }
-                    while (NativeMethods.Process32NextW(snapshot, ref entry));
-                }
+                string? name = map.TryGetValue(parent, out var p) ? p.Name : null;
+                chain.Add(new ProcessRef { Pid = parent, Name = name, Path = TryGetFullPath(parent) });
+                pid = parent;
             }
-            finally
-            {
-                NativeMethods.CloseHandle(snapshot);
-            }
-
-            if (!map.TryGetValue(myPid, out var me))
-            {
-                return default;
-            }
-
-            string? name = map.TryGetValue(me.Parent, out var parent) ? parent.Name : null;
-            string? path = me.Parent != 0 ? TryGetFullPath(me.Parent) : null;
-            return new ParentInfo(me.Parent, name, path);
         }
         catch
         {
-            return default;
+            // best-effort
         }
+        return chain;
+    }
+
+    private static Dictionary<int, (int Parent, string Name)> BuildProcessMap()
+    {
+        var map = new Dictionary<int, (int Parent, string Name)>();
+        IntPtr snapshot = NativeMethods.CreateToolhelp32Snapshot(NativeMethods.TH32CS_SNAPPROCESS, 0);
+        if (snapshot == new IntPtr(-1))
+        {
+            return map;
+        }
+        try
+        {
+            var entry = new NativeMethods.PROCESSENTRY32W();
+            unsafe
+            {
+                entry.dwSize = (uint)sizeof(NativeMethods.PROCESSENTRY32W);
+            }
+
+            if (NativeMethods.Process32FirstW(snapshot, ref entry))
+            {
+                do
+                {
+                    map[(int)entry.th32ProcessID] = ((int)entry.th32ParentProcessID, ReadExeName(ref entry));
+                }
+                while (NativeMethods.Process32NextW(snapshot, ref entry));
+            }
+        }
+        finally
+        {
+            NativeMethods.CloseHandle(snapshot);
+        }
+        return map;
     }
 
     public static Identity GetIdentity()
@@ -86,6 +106,26 @@ internal static class ProcessDetails
         }
 
         return new Identity(user, sid, session);
+    }
+
+    /// <summary>
+    /// Reports whether this process (launched by IFEO in place of the interpreter, inheriting the
+    /// caller's creation flags) has a console window. No console window means it was launched with
+    /// CREATE_NO_WINDOW / DETACHED_PROCESS (a "shadow" background launch). The window handle itself
+    /// is never recorded — only the boolean state.
+    /// </summary>
+    public static WindowVisibility GetWindowVisibility()
+    {
+        try
+        {
+            return NativeMethods.GetConsoleWindow() == IntPtr.Zero
+                ? WindowVisibility.NoWindow
+                : WindowVisibility.Windowed;
+        }
+        catch
+        {
+            return WindowVisibility.Unknown;
+        }
     }
 
     private static unsafe string ReadExeName(ref NativeMethods.PROCESSENTRY32W entry)

@@ -4,12 +4,13 @@ using System.Text;
 
 namespace ScriptWarden.Web;
 
-/// <summary>An incoming HTTP request (GET only) parsed by <see cref="HttpServer"/>.</summary>
+/// <summary>An incoming HTTP request (GET/POST) parsed by <see cref="HttpServer"/>.</summary>
 internal sealed class HttpRequest
 {
     public required string Method { get; init; }
     public required string Path { get; init; }
     public required IReadOnlyDictionary<string, string> Query { get; init; }
+    public string Body { get; init; } = "";
 }
 
 /// <summary>A response to write back.</summary>
@@ -85,7 +86,7 @@ internal sealed class HttpServer
         using NetworkStream stream = client.GetStream();
         stream.ReadTimeout = 5000;
 
-        string? requestLine = ReadRequestHeader(stream, out _);
+        string? requestLine = ReadRequestHeader(stream, out string headers);
         if (requestLine is null)
         {
             return;
@@ -113,16 +114,64 @@ internal sealed class HttpServer
         path = Uri.UnescapeDataString(path);
 
         HttpResponse response;
-        if (!string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase))
         {
             response = HttpResponse.Text("Method Not Allowed", 405);
         }
         else
         {
-            response = _handler(new HttpRequest { Method = method, Path = path, Query = query });
+            string body = ReadBody(stream, headers);
+            response = _handler(new HttpRequest { Method = method, Path = path, Query = query, Body = body });
         }
 
         Write(stream, response);
+    }
+
+    private static string ReadBody(NetworkStream stream, string headers)
+    {
+        int length = ContentLength(headers);
+        if (length <= 0 || length > 8 * 1024 * 1024)
+        {
+            return "";
+        }
+
+        byte[] buffer = new byte[length];
+        int offset = 0;
+        try
+        {
+            while (offset < length)
+            {
+                int read = stream.Read(buffer, offset, length - offset);
+                if (read <= 0)
+                {
+                    break;
+                }
+                offset += read;
+            }
+        }
+        catch (IOException)
+        {
+            return "";
+        }
+
+        return Encoding.UTF8.GetString(buffer, 0, offset);
+    }
+
+    private static int ContentLength(string headers)
+    {
+        foreach (string line in headers.Split('\n'))
+        {
+            int colon = line.IndexOf(':');
+            if (colon > 0 && line[..colon].Trim().Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
+            {
+                if (int.TryParse(line[(colon + 1)..].Trim(), out int len))
+                {
+                    return len;
+                }
+            }
+        }
+        return 0;
     }
 
     private static string? ReadRequestHeader(NetworkStream stream, out string headers)

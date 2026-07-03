@@ -129,4 +129,23 @@ internal static partial class NativeMethods
         uint nBufferLength,
         char[] lpBuffer,
         IntPtr lpFilePart);
+
+    [LibraryImport("kernel32.dll", SetLastError = false)]
+    public static partial IntPtr GetConsoleWindow();
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GetCommandLineW")]
+    public static partial IntPtr GetCommandLineW();
+
+    /// <summary>
+    /// Returns the raw process command line exactly as Windows passed it. Unlike
+    /// <c>Environment.CommandLine</c> (which is re-serialized from argv and loses the original
+    /// quoting — see dotnet/runtime#25841 "Value of Environment.CommandLine is different with the
+    /// actual input"), this is byte-for-byte what the OS provided, which is essential for forwarding
+    /// an interpreter's command line verbatim.
+    /// </summary>
+    public static string GetRawCommandLine()
+    {
+        IntPtr ptr = GetCommandLineW();
+        return ptr == IntPtr.Zero ? "" : Marshal.PtrToStringUni(ptr) ?? "";
+    }
 }

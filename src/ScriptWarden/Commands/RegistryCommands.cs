@@ -40,14 +40,13 @@ internal static class RegistryCommands
                 {
                     IfeoRegistry.SetDebugger(image, debuggerValue, view);
                 }
-                lines.Add($"  hooked  {image}");
+                lines.Add($"  monitoring  {image}");
             }
 
-            lines.Insert(0, $"Registered IFEO debugger for {images.Length} image(s):");
+            lines.Insert(0, $"Now monitoring {images.Length} interpreter(s):");
             lines.Add("");
-            lines.Add($"Debugger value : {debuggerValue}");
-            lines.Add($"Audit data     : {DataRoots.CurrentUserRoot()} (per-user)");
-            lines.Add("Run 'script-warden status' to verify, or 'script-warden serve' to view the audit trail.");
+            lines.Add($"Captured data : {DataRoots.CurrentUserRoot()} (per-user)");
+            lines.Add("Run 'script-warden status' to verify, or 'script-warden serve' to review what runs.");
         }
         catch (Exception ex)
         {
@@ -95,10 +94,10 @@ internal static class RegistryCommands
             }
 
             lines.Insert(0, removed > 0
-                ? $"Removed script-warden IFEO hooks from {removed} image(s):"
-                : "No script-warden IFEO hooks were found.");
+                ? $"Stopped monitoring {removed} interpreter(s):"
+                : "No interpreters were being monitored by script-warden.");
             lines.Add("");
-            lines.Add("Note: the installed executable and existing audit data were left in place.");
+            lines.Add("Note: the installed executable and existing captured data were left in place.");
         }
         catch (Exception ex)
         {
@@ -112,7 +111,7 @@ internal static class RegistryCommands
 
     public static int Status(string[] args)
     {
-        Console.WriteLine("IFEO hook status (image : 64-bit view / 32-bit view):");
+        Console.WriteLine("Monitoring status (interpreter : 64-bit / 32-bit):");
         Console.WriteLine();
 
         var images = new List<string>(ImageCatalog.Known);
@@ -124,24 +123,24 @@ internal static class RegistryCommands
 
             if (x64.State == HookState.HookedByOther)
             {
-                Console.WriteLine($"       (64-bit debugger: {x64.Value})");
+                Console.WriteLine($"       (64-bit: {x64.Value})");
             }
             if (x86.State == HookState.HookedByOther)
             {
-                Console.WriteLine($"       (32-bit debugger: {x86.Value})");
+                Console.WriteLine($"       (32-bit: {x86.Value})");
             }
         }
 
         Console.WriteLine();
-        Console.WriteLine($"Audit data (per-user): {DataRoots.CurrentUserRoot()}");
+        Console.WriteLine($"Captured data (per-user): {DataRoots.CurrentUserRoot()}");
         return 0;
     }
 
     private static string Describe(HookState state) => state switch
     {
-        HookState.HookedByUs => "hooked (us)",
-        HookState.HookedByOther => "other debugger",
-        _ => "not hooked",
+        HookState.HookedByUs => "monitored",
+        HookState.HookedByOther => "other tool",
+        _ => "not monitored",
     };
 
     private static string CopyExe(string? exePathDir, List<string> lines)

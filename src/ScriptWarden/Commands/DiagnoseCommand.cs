@@ -31,13 +31,13 @@ internal static class DiagnoseCommand
         ReportRoot("system (read by viewer)", DataRoots.SystemRoot(), probeWrite: false);
 
         Console.WriteLine();
-        Console.WriteLine("IFEO hooks (64-bit / 32-bit)");
+        Console.WriteLine("Monitoring (64-bit / 32-bit)");
         Console.WriteLine(new string('-', 60));
         foreach (string image in ImageCatalog.Known)
         {
             HookInfo x64 = IfeoRegistry.GetStatus(image, RegistryView.Registry64);
             HookInfo x86 = IfeoRegistry.GetStatus(image, RegistryView.Registry32);
-            Console.WriteLine($"  {image,-20} {x64.State,-16} {x86.State}");
+            Console.WriteLine($"  {image,-20} {DescribeState(x64.State),-16} {DescribeState(x86.State)}");
         }
 
         Console.WriteLine();
@@ -53,6 +53,13 @@ internal static class DiagnoseCommand
 
         return 0;
     }
+
+    private static string DescribeState(HookState state) => state switch
+    {
+        HookState.HookedByUs => "monitored",
+        HookState.HookedByOther => "other tool",
+        _ => "not monitored",
+    };
 
     private static void ReportRoot(string label, string path, bool probeWrite)
     {

@@ -43,14 +43,17 @@ internal static class ShimCommand
         string? resolvedTarget = TransparentLauncher.ResolveImagePath(targetPath);
 
         // Reconstruct the child's command line verbatim: strip our own exe token and the "shim"
-        // token, preserving the exact original quoting of the remainder.
-        string childCommandLine = CommandLineParser.StripLeadingTokens(Environment.CommandLine, 2);
+        // token, preserving the exact original quoting of the remainder. We must use the RAW OS
+        // command line (GetCommandLineW) — under Native AOT, Environment.CommandLine is re-quoted
+        // from argv, which corrupts cmd-style quoting (e.g. "" -> \") and breaks the relaunch.
+        string childCommandLine = CommandLineParser.StripLeadingTokens(NativeMethods.GetRawCommandLine(), 2);
         if (string.IsNullOrEmpty(childCommandLine))
         {
             childCommandLine = QuoteIfNeeded(targetPath);
         }
 
         // Start the child first so we add as little latency as possible to the launch.
+        long startTick = Environment.TickCount64;
         StartedProcess started;
         try
         {
@@ -65,7 +68,20 @@ internal static class ShimCommand
         }
 
         string root = DataRoots.CurrentUserRoot();
-        AuditEvent ev = BuildEvent(resolvedTarget ?? targetPath, interpreterArgs, childCommandLine, started.Pid);
+        var identity = ProcessDetails.GetIdentity();
+        List<ProcessRef> ancestors = ProcessDetails.GetAncestors();
+        ProcessRef? parent = ancestors.Count > 0 ? ancestors[0] : null;
+        string hookedImage = SafeFileName(resolvedTarget ?? targetPath);
+
+        // Honor exclusions (e.g. don't audit when launched by copilot.exe). Excluded launches still
+        // run transparently; we simply skip capture + logging.
+        WardenConfig config = ConfigStore.Load(root);
+        if (config.IsExcluded(hookedImage, parent?.Name))
+        {
+            return TransparentLauncher.WaitForExit(started);
+        }
+
+        AuditEvent ev = BuildEvent(resolvedTarget ?? targetPath, interpreterArgs, childCommandLine, started.Pid, identity, ancestors, hookedImage);
 
         // Capture + write the initial record while the child runs (visible immediately, even for
         // long-lived interactive shells). All best-effort.
@@ -80,24 +96,30 @@ internal static class ShimCommand
 
         TryWriteEvent(root, ev);
 
-        // Wait and propagate the exit code, then update the record with it.
+        // Wait and propagate the exit code + duration, then update the record.
         int exitCode = TransparentLauncher.WaitForExit(started);
         ev.ExitCode = exitCode;
+        ev.DurationMs = Environment.TickCount64 - startTick;
         TryWriteEvent(root, ev);
 
         return exitCode;
     }
 
-    private static AuditEvent BuildEvent(string targetPath, string[] interpreterArgs, string commandLine, int childPid)
+    private static AuditEvent BuildEvent(
+        string targetPath,
+        string[] interpreterArgs,
+        string commandLine,
+        int childPid,
+        ProcessDetails.Identity identity,
+        List<ProcessRef> ancestors,
+        string hookedImage)
     {
-        var identity = ProcessDetails.GetIdentity();
-        var parent = ProcessDetails.GetParent();
-
+        ProcessRef? parent = ancestors.Count > 0 ? ancestors[0] : null;
         return new AuditEvent
         {
             EventId = Guid.NewGuid().ToString(),
             TimestampUtc = DateTimeOffset.UtcNow,
-            HookedImage = SafeFileName(targetPath),
+            HookedImage = hookedImage,
             TargetPath = targetPath,
             CommandLine = commandLine,
             Arguments = interpreterArgs,
@@ -107,9 +129,11 @@ internal static class ShimCommand
             SessionId = identity.SessionId,
             ShimProcessId = Environment.ProcessId,
             ChildProcessId = childPid,
-            ParentProcessId = parent.Pid,
-            ParentProcessName = parent.Name,
-            ParentProcessPath = parent.Path,
+            ParentProcessId = parent?.Pid ?? 0,
+            ParentProcessName = parent?.Name,
+            ParentProcessPath = parent?.Path,
+            Ancestors = ancestors,
+            Window = ProcessDetails.GetWindowVisibility(),
         };
     }
 
