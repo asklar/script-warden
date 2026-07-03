@@ -42,6 +42,8 @@ export interface RootDto {
 export interface ServeStatus {
     version: string;
     eventCount: number;
+    totalOnDisk: number;
+    indexing: boolean;
     roots: RootDto[];
     images: string[];
     parents: string[];

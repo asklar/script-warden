@@ -74,7 +74,7 @@ public sealed class AuditEvent
     /// <summary>Windows session id.</summary>
     public int SessionId { get; set; }
 
-    /// <summary>Whether the launch had a visible window/console (interactive vs "shadow" background).</summary>
+    /// <summary>Whether the launch had a console window (interactive) or none (CREATE_NO_WINDOW-style "shadow" launch).</summary>
     [JsonConverter(typeof(JsonStringEnumConverter<WindowVisibility>))]
     public WindowVisibility Window { get; set; } = WindowVisibility.Unknown;
 

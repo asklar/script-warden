@@ -38,19 +38,17 @@ public enum AuditOrigin
 }
 
 /// <summary>
-/// Whether the launch had a visible window/console. Lets you distinguish interactive launches from
-/// "shadow" background launches (e.g. created with CREATE_NO_WINDOW or a hidden window).
+/// Whether the launched process had a console window. Distinguishes interactive launches from
+/// "shadow" background launches (e.g. created with CREATE_NO_WINDOW / DETACHED_PROCESS). Determined
+/// by whether the process has a console window — the HWND itself is never recorded.
 /// </summary>
 public enum WindowVisibility
 {
     Unknown = 0,
 
-    /// <summary>A console window exists and is visible (typical interactive launch).</summary>
-    Visible,
+    /// <summary>The process has a console window (interactive / inherited / new console).</summary>
+    Windowed,
 
-    /// <summary>A console exists but the window is hidden (e.g. STARTF_USESHOWWINDOW + SW_HIDE).</summary>
-    Hidden,
-
-    /// <summary>No console window (CREATE_NO_WINDOW / DETACHED_PROCESS, or a GUI host).</summary>
-    None,
+    /// <summary>No console window — launched with CREATE_NO_WINDOW, detached, or as a GUI host.</summary>
+    NoWindow,
 }

@@ -91,10 +91,9 @@ function fmtSize(bytes: number): string {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function windowColor(w: string): "success" | "warning" | "subtle" | "informative" {
-    if (w === "Visible") return "success";
-    if (w === "Hidden") return "warning";
-    if (w === "None") return "informative";
+function windowColor(w: string): "success" | "warning" | "subtle" {
+    if (w === "Windowed") return "success";
+    if (w === "NoWindow") return "warning";
     return "subtle";
 }
 
@@ -167,14 +166,17 @@ export function App() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [offset, imageFilter, originFilter, parentFilter, windowFilter, debouncedSearch]);
 
-    // Auto-refresh the current view without resetting filters/pagination.
+    // Auto-refresh the current view without resetting filters/pagination. While the server is still
+    // indexing a large trail, poll faster so results appear progressively; then settle to 5s.
     const loadRef = useRef(load);
     loadRef.current = load;
+    const indexing = status?.indexing ?? false;
     useEffect(() => {
         if (!autoRefresh) return;
-        const id = setInterval(() => void loadRef.current(true), 5000);
+        const interval = indexing ? 1000 : 5000;
+        const id = setInterval(() => void loadRef.current(true), interval);
         return () => clearInterval(id);
-    }, [autoRefresh]);
+    }, [autoRefresh, indexing]);
 
     function setFilter(setter: (v: string) => void) {
         return (v: string) => {
@@ -256,6 +258,12 @@ export function App() {
                             {total === 0 ? "No events" : `${pageStart}–${pageEnd} of ${total}`}
                             {lastUpdated ? ` · updated ${lastUpdated.toLocaleTimeString()}` : ""}
                         </Caption1>
+                        {indexing && status && (
+                            <>
+                                <Spinner size="tiny" />
+                                <Caption1>indexing {status.eventCount} / {status.totalOnDisk}…</Caption1>
+                            </>
+                        )}
                         <div className={styles.grow} />
                         <Button size="small" onClick={() => setOffset(Math.max(0, offset - pageSize))} disabled={offset === 0}>Prev</Button>
                         <Button size="small" onClick={() => setOffset(offset + pageSize)} disabled={offset + pageSize >= total}>Next</Button>

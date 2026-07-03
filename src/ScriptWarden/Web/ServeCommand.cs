@@ -36,6 +36,12 @@ internal static partial class ServeCommand
             TryOpenBrowser(url);
         }
 
+        // Prime the newest events synchronously for a fast first paint, then index the rest (and
+        // keep watching for new events) on a background thread so `serve` responds immediately even
+        // with a large audit trail.
+        Cache.Prime(200);
+        Cache.Start();
+
         try
         {
             new HttpServer(port, Route).Run();
@@ -132,14 +138,19 @@ internal static partial class ServeCommand
         return HttpResponse.Json(JsonSerializer.Serialize(config, AuditJsonContext.Default.WardenConfig));
     }
 
+    private static readonly EventCache Cache = new();
+
     private static HttpResponse ApiStatus()
     {
-        List<AuditEvent> events = SyncCache(out IReadOnlyList<ResolvedRoot> roots);
+        List<AuditEvent> events = Cache.Snapshot();
+        IReadOnlyList<ResolvedRoot> roots = Cache.Roots;
         AuditFacets facets = AuditQuery.Facets(events);
         var status = new ServeStatus
         {
             Version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0",
             EventCount = events.Count,
+            TotalOnDisk = Cache.TotalOnDisk,
+            Indexing = Cache.Indexing,
             Roots = roots.Select(r => new RootDto
             {
                 Path = r.Path,
@@ -157,7 +168,7 @@ internal static partial class ServeCommand
 
     private static HttpResponse ApiEvents(HttpRequest req)
     {
-        List<AuditEvent> events = SyncCache(out _);
+        List<AuditEvent> events = Cache.Snapshot();
         int offset = ParseInt(req.Query.GetValueOrDefault("offset"), 0);
         int limit = Math.Clamp(ParseInt(req.Query.GetValueOrDefault("limit"), 100), 1, 500);
 
@@ -176,62 +187,6 @@ internal static partial class ServeCommand
 
     private static int ParseInt(string? value, int fallback) =>
         int.TryParse(value, out int n) ? n : fallback;
-
-    // In-memory event cache. The HTTP server processes requests sequentially, so no locking is
-    // needed. On each request we reconcile the cache with the event files on disk: newly-seen files
-    // are parsed and added; files that disappeared (e.g. after a clear) are dropped. This keeps the
-    // viewer responsive for large trails without re-parsing every file on every request.
-    private static readonly Dictionary<string, AuditEvent> Cache = new(StringComparer.OrdinalIgnoreCase);
-
-    private static List<AuditEvent> SyncCache(out IReadOnlyList<ResolvedRoot> roots)
-    {
-        roots = DataRoots.ForViewer();
-
-        var current = new Dictionary<string, AuditOrigin>(StringComparer.OrdinalIgnoreCase);
-        foreach (ResolvedRoot root in roots)
-        {
-            if (!root.Readable)
-            {
-                continue;
-            }
-            string dir = DataRoots.EventsDir(root.Path);
-            if (!Directory.Exists(dir))
-            {
-                continue;
-            }
-            try
-            {
-                foreach (string file in Directory.EnumerateFiles(dir, "*.json"))
-                {
-                    current[file] = root.Origin;
-                }
-            }
-            catch
-            {
-                // ignore unreadable roots
-            }
-        }
-
-        foreach (string stale in Cache.Keys.Where(k => !current.ContainsKey(k)).ToList())
-        {
-            Cache.Remove(stale);
-        }
-
-        foreach ((string path, AuditOrigin origin) in current)
-        {
-            if (Cache.ContainsKey(path))
-            {
-                continue;
-            }
-            AuditEvent? ev = AuditStore.ReadEventFile(path, origin);
-            if (ev is not null)
-            {
-                Cache[path] = ev;
-            }
-        }
-
-        return Cache.Values.ToList();
-    }
 
     private static HttpResponse ApiScript(HttpRequest req)
     {

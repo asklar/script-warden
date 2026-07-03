@@ -18,7 +18,7 @@ public class AuditQueryTests
                 CommandLine = $"cmd number {i}",
                 Origin = i < 5 ? AuditOrigin.CurrentUser : AuditOrigin.System,
                 ParentProcessName = i % 3 == 0 ? "explorer.exe" : "copilot.exe",
-                Window = i % 2 == 0 ? WindowVisibility.Visible : WindowVisibility.Hidden,
+                Window = i % 2 == 0 ? WindowVisibility.Windowed : WindowVisibility.NoWindow,
             });
         }
         return list;
@@ -65,7 +65,7 @@ public class AuditQueryTests
     {
         Assert.Equal(5, AuditQuery.Query(Sample(), origin: "System", limit: 100).Total);
         Assert.Equal(6, AuditQuery.Query(Sample(), parent: "copilot.exe", limit: 100).Total);
-        Assert.Equal(5, AuditQuery.Query(Sample(), window: "Hidden", limit: 100).Total);
+        Assert.Equal(5, AuditQuery.Query(Sample(), window: "NoWindow", limit: 100).Total);
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public class AuditQueryTests
         AuditFacets f = AuditQuery.Facets(Sample());
         Assert.Equal(["cmd.exe", "powershell.exe"], f.Images);
         Assert.Equal(["copilot.exe", "explorer.exe"], f.Parents);
-        Assert.Contains("Visible", f.Windows);
-        Assert.Contains("Hidden", f.Windows);
+        Assert.Contains("Windowed", f.Windows);
+        Assert.Contains("NoWindow", f.Windows);
     }
 }

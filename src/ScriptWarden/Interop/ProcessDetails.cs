@@ -90,26 +90,18 @@ internal static class ProcessDetails
     }
 
     /// <summary>
-    /// Determines whether this process (launched by IFEO in place of the interpreter, inheriting the
-    /// caller's creation flags/startup info) has a visible window, a hidden one, or no console at all.
+    /// Reports whether this process (launched by IFEO in place of the interpreter, inheriting the
+    /// caller's creation flags) has a console window. No console window means it was launched with
+    /// CREATE_NO_WINDOW / DETACHED_PROCESS (a "shadow" background launch). The window handle itself
+    /// is never recorded — only the boolean state.
     /// </summary>
     public static WindowVisibility GetWindowVisibility()
     {
         try
         {
-            NativeMethods.GetStartupInfo(out NativeMethods.STARTUPINFOW si);
-            if ((si.dwFlags & NativeMethods.STARTF_USESHOWWINDOW) != 0 && si.wShowWindow == NativeMethods.SW_HIDE)
-            {
-                return WindowVisibility.Hidden;
-            }
-
-            IntPtr consoleWindow = NativeMethods.GetConsoleWindow();
-            if (consoleWindow == IntPtr.Zero)
-            {
-                return WindowVisibility.None;
-            }
-
-            return NativeMethods.IsWindowVisible(consoleWindow) ? WindowVisibility.Visible : WindowVisibility.Hidden;
+            return NativeMethods.GetConsoleWindow() == IntPtr.Zero
+                ? WindowVisibility.NoWindow
+                : WindowVisibility.Windowed;
         }
         catch
         {
