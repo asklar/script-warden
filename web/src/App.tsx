@@ -50,6 +50,13 @@ import {
     WeatherSunnyRegular,
     WeatherMoonRegular,
     DesktopRegular,
+    EyeRegular,
+    EyeOffRegular,
+    ShieldTaskRegular,
+    ShieldKeyholeRegular,
+    PersonRegular,
+    WindowConsoleRegular,
+    ChevronRightRegular,
 } from "@fluentui/react-icons";
 import {
     AuditEvent,
@@ -69,12 +76,19 @@ import {
 const useStyles = makeStyles({
     root: { maxWidth: "1200px", margin: "0 auto", padding: "24px", display: "flex", flexDirection: "column", gap: "12px" },
     headerRow: { display: "flex", alignItems: "center", justifyContent: "space-between" },
+    brand: { display: "flex", alignItems: "center", gap: "12px" },
+    brandIcon: { fontSize: "34px", color: tokens.colorBrandForeground1, flexShrink: 0 },
     headerActions: { display: "flex", gap: "12px", alignItems: "center" },
     toolbar: { display: "flex", gap: "12px", alignItems: "flex-end", flexWrap: "wrap" },
     pager: { display: "flex", alignItems: "center", gap: "8px" },
     grow: { flex: 1 },
     search: { minWidth: "260px" },
     clickable: { cursor: "pointer" },
+    row: { cursor: "pointer", ":hover": { backgroundColor: tokens.colorNeutralBackground1Hover } },
+    interpreterIcon: { color: tokens.colorNeutralForeground3 },
+    chain: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px", rowGap: "6px" },
+    chainNode: { display: "inline-flex", alignItems: "center" },
+    chainArrow: { color: tokens.colorNeutralForeground4, fontSize: "14px", margin: "0 2px", flexShrink: 0 },
     mono: { fontFamily: tokens.fontFamilyMonospace, whiteSpace: "pre-wrap", wordBreak: "break-all", background: tokens.colorNeutralBackground3, padding: "8px", borderRadius: tokens.borderRadiusMedium, margin: 0 },
     scriptView: { fontFamily: tokens.fontFamilyMonospace, fontSize: tokens.fontSizeBase200, whiteSpace: "pre-wrap", wordBreak: "break-word", background: tokens.colorNeutralBackground3, padding: "12px", borderRadius: tokens.borderRadiusMedium, maxHeight: "320px", overflow: "auto", margin: 0 },
     fieldGrid: { display: "grid", gridTemplateColumns: "140px 1fr", rowGap: "4px", columnGap: "12px", alignItems: "start" },
@@ -131,14 +145,35 @@ function windowLabel(w: string): string {
     return w || "Unknown";
 }
 
-// Immediate parent → … → root, so you can see the full chain that led to the launch (e.g. a
-// scheduled task or management agent several hops up).
-function ancestryText(e: AuditEvent): string {
-    const chain = (e.ancestors ?? []).map((a) => `${a.name || "?"} (${a.pid})`);
-    if (chain.length === 0) {
-        return e.parentProcessName ? `${e.parentProcessName} (${e.parentProcessId})` : "(unknown)";
-    }
-    return chain.join("  →  ");
+function windowIcon(w: string) {
+    return w === "NoWindow" ? <EyeOffRegular /> : <EyeRegular />;
+}
+
+function originIcon(o: string) {
+    return o === "System" ? <ShieldTaskRegular /> : <PersonRegular />;
+}
+
+// Root ancestor → … → immediate parent → the launched process, so the chain reads causally
+// left-to-right (each arrow means "started"). The final, emphasized node is this launch itself.
+function LaunchChain({ event }: { event: AuditEvent }) {
+    const styles = useStyles();
+    const parents = [...(event.ancestors ?? [])]
+        .reverse()
+        .map((a) => ({ name: a.name || "?", pid: a.pid, title: `${a.path || a.name || "?"} (pid ${a.pid})`, self: false }));
+    const nodes = [
+        ...parents,
+        { name: event.hookedImage, pid: event.childProcessId, title: `${event.targetPath} (pid ${event.childProcessId})`, self: true },
+    ];
+    return (
+        <div className={styles.chain}>
+            {nodes.map((n, i) => (
+                <span key={i} className={styles.chainNode} title={n.title}>
+                    <Badge appearance={n.self ? "filled" : "outline"} color={n.self ? "brand" : "informative"}>{n.name}</Badge>
+                    {i < nodes.length - 1 && <ChevronRightRegular className={styles.chainArrow} />}
+                </span>
+            ))}
+        </div>
+    );
 }
 
 export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThemeChange: (m: ThemeMode) => void }) {
@@ -251,10 +286,13 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
     return (
         <div className={styles.root}>
             <div className={styles.headerRow}>
-                <div>
-                    <Title2>script-warden</Title2>
+                <div className={styles.brand}>
+                    <ShieldKeyholeRegular className={styles.brandIcon} />
                     <div>
-                        <Caption1>Scripts that ran on this machine — including ones IT or automation started in the background{status ? ` — v${status.version}` : ""}</Caption1>
+                        <Title2>script-warden</Title2>
+                        <div>
+                            <Caption1>Scripts that ran on this machine — including ones IT or automation started in the background{status ? ` — v${status.version}` : ""}</Caption1>
+                        </div>
                     </div>
                 </div>
                 <div className={styles.headerActions}>
@@ -347,11 +385,11 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                             </TableHeader>
                             <TableBody>
                                 {events.map((e) => (
-                                    <TableRow key={e.eventId} className={styles.clickable} onClick={() => setSelected(e)}>
+                                    <TableRow key={e.eventId} className={styles.row} onClick={() => setSelected(e)}>
                                         <TableCell>{fmtTime(e.timestampUtc)}</TableCell>
-                                        <TableCell>{e.hookedImage}</TableCell>
-                                        <TableCell><Badge appearance="tint" color={e.origin === "System" ? "danger" : "informative"}>{e.origin}</Badge></TableCell>
-                                        <TableCell><Badge appearance="tint" color={windowColor(e.window)}>{windowLabel(e.window)}</Badge></TableCell>
+                                        <TableCell><TableCellLayout media={<WindowConsoleRegular className={styles.interpreterIcon} />}>{e.hookedImage}</TableCellLayout></TableCell>
+                                        <TableCell><Badge appearance="tint" color={e.origin === "System" ? "danger" : "informative"} icon={originIcon(e.origin)}>{e.origin}</Badge></TableCell>
+                                        <TableCell><Badge appearance="tint" color={windowColor(e.window)} icon={windowIcon(e.window)}>{windowLabel(e.window)}</Badge></TableCell>
                                         <TableCell>{e.user}</TableCell>
                                         <TableCell>{e.parentProcessName}</TableCell>
                                         <TableCell>
@@ -521,7 +559,7 @@ function EventDialog({ event, onClose }: { event: AuditEvent | null; onClose: ()
                                 <Text className={styles.label}>Started by</Text>
                                 <Text>{event.parentProcessName} (pid {event.parentProcessId}){event.parentProcessPath ? ` — ${event.parentProcessPath}` : ""}</Text>
                                 <Text className={styles.label}>Launch chain</Text>
-                                <Text>{ancestryText(event)}</Text>
+                                <LaunchChain event={event} />
                                 <Text className={styles.label}>Working dir</Text>
                                 <Text>{event.workingDirectory}</Text>
                                 <Text className={styles.label}>Origin</Text>
