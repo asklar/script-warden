@@ -27,6 +27,12 @@ try
         case "status":
             return RegistryCommands.Status(args);
 
+        case "list":
+            return ListCommand.Run(args);
+
+        case "diagnose":
+            return DiagnoseCommand.Run(args);
+
         case "help":
         case "h":
         case "?":
