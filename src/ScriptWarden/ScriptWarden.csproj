@@ -20,6 +20,10 @@
     <ProjectReference Include="..\ScriptWarden.Core\ScriptWarden.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="ScriptWarden.Cli.Tests" />
+  </ItemGroup>
+
   <!-- Single-file SPA produced by the Vite build (web\dist\index.html). Embedded so the
        tool remains one self-contained native exe. Optional at build time. -->
   <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\..\..\web\dist\index.html')">

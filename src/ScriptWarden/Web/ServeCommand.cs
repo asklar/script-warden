@@ -99,7 +99,7 @@ internal static partial class ServeCommand
         string origin = req.Query.GetValueOrDefault("origin", "CurrentUser");
         bool download = req.Query.GetValueOrDefault("download", "") is "1" or "true";
 
-        if (!ShaPattern().IsMatch(sha) || !ExtPattern().IsMatch(ext))
+        if (!IsValidScriptReference(sha, ext))
         {
             return HttpResponse.Text("invalid script reference", 400);
         }
@@ -112,7 +112,7 @@ internal static partial class ServeCommand
         string full = Path.GetFullPath(new ScriptStore(root).ScriptPath(sha, ext));
 
         // Defense in depth against traversal (sha/ext are already validated).
-        if (!full.StartsWith(scriptsDir, StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
+        if (!IsInside(scriptsDir, full) || !File.Exists(full))
         {
             return HttpResponse.Text("script not found", 404);
         }
@@ -130,6 +130,14 @@ internal static partial class ServeCommand
         }
         return response;
     }
+
+    /// <summary>Validates a script reference: SHA-256 hex (64 chars) and a simple dotted extension.</summary>
+    internal static bool IsValidScriptReference(string sha, string ext) =>
+        ShaPattern().IsMatch(sha) && ExtPattern().IsMatch(ext);
+
+    /// <summary>True if <paramref name="candidate"/> is within <paramref name="directory"/>.</summary>
+    internal static bool IsInside(string directory, string candidate) =>
+        candidate.StartsWith(directory, StringComparison.OrdinalIgnoreCase);
 
     private static HttpResponse ServeIndex()
     {

@@ -4,6 +4,7 @@
     <Project Path="src/ScriptWarden/ScriptWarden.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/ScriptWarden.Cli.Tests/ScriptWarden.Cli.Tests.csproj" />
     <Project Path="tests/ScriptWarden.Tests/ScriptWarden.Tests.csproj" />
   </Folder>
 </Solution>
