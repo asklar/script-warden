@@ -18,6 +18,15 @@ try
         case "shim":
             return ShimCommand.Run(args);
 
+        case "install":
+            return RegistryCommands.Install(args);
+
+        case "uninstall":
+            return RegistryCommands.Uninstall(args);
+
+        case "status":
+            return RegistryCommands.Status(args);
+
         case "help":
         case "h":
         case "?":
