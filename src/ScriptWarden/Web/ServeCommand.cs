@@ -25,6 +25,20 @@ internal static partial class ServeCommand
         bool open = !opts.Has("no-open");
 
         string url = $"http://127.0.0.1:{port}/";
+
+        // Bind + start listening BEFORE opening the browser, so the first navigation always lands on
+        // a live server (previously the browser could open before the listener was up → blank/404).
+        var server = new HttpServer(port, Route);
+        try
+        {
+            server.Start();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"script-warden: viewer failed to start on port {port}: {ex.Message}");
+            return 1;
+        }
+
         Console.WriteLine($"script-warden viewer listening at {url}");
         foreach (ResolvedRoot root in DataRoots.ForViewer())
         {
@@ -44,15 +58,7 @@ internal static partial class ServeCommand
         Cache.Prime(200);
         Cache.Start();
 
-        try
-        {
-            new HttpServer(port, Route).Run();
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"script-warden: viewer failed to start on port {port}: {ex.Message}");
-            return 1;
-        }
+        server.AcceptLoop();
         return 0;
     }
 
