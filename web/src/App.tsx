@@ -60,6 +60,7 @@ import {
     ChevronRightRegular,
     SearchRegular,
     DataBarHorizontalRegular,
+    SubtractRegular,
 } from "@fluentui/react-icons";
 import {
     AuditEvent,
@@ -159,9 +160,21 @@ const useStyles = makeStyles({
 });
 
 const ALL = "all";
-// Sentinel value for the synthetic "All" row in MultiFilterDropdown. A real process/parent name
-// can never equal this, so it will never collide with a genuine option.
+// Sentinel values for the synthetic rows in MultiFilterDropdown. A real process/parent name can
+// never equal these, so they never collide with a genuine option.
 const ALL_SENTINEL = "\u0000__all__";
+const NONE_SENTINEL = "\u0000__none__";
+
+// A multiselect facet is either "all" (no filter) or an explicit list of checked values ([] = none).
+type MultiSelection = string[] | "all";
+
+// Map a parent selection to the `parent` query value: "all"/absent = no filter (all events);
+// an empty explicit list = a sentinel that matches nothing (0 events), so "checked = shown" holds.
+function parentQueryValue(sel: MultiSelection): string | undefined {
+    if (sel === "all") return undefined;
+    if (sel.length === 0) return NONE_SENTINEL;
+    return sel.join(",");
+}
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -274,7 +287,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
     const [debouncedSearch, setDebouncedSearch] = useState("");
     const [imageFilter, setImageFilter] = useState(ALL);
     const [originFilter, setOriginFilter] = useState(ALL);
-    const [parentFilter, setParentFilter] = useState<string[]>([]);
+    const [parentFilter, setParentFilter] = useState<MultiSelection>("all");
     const [windowFilter, setWindowFilter] = useState(ALL);
     const [selected, setSelected] = useState<AuditEvent | null>(null);
     const [confirmClear, setConfirmClear] = useState(false);
@@ -291,7 +304,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                     limit: pageSize,
                     image: imageFilter,
                     origin: originFilter,
-                    parent: parentFilter.length ? parentFilter.join(",") : undefined,
+                    parent: parentQueryValue(parentFilter),
                     window: windowFilter,
                     q: debouncedSearch,
                 }),
@@ -424,7 +437,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                         </div>
                         <FilterDropdown label="Interpreter" value={imageFilter} options={imageOptions} onChange={setFilter(setImageFilter)} />
                         <FilterDropdown label="Origin" value={originFilter} options={[ALL, "CurrentUser", "System"]} onChange={setFilter(setOriginFilter)} />
-                        <MultiFilterDropdown label="Parent" values={parentFilter} options={parentOptions} onChange={(v) => { setParentFilter(v); setOffset(0); }} />
+                        <MultiFilterDropdown label="Parent" selection={parentFilter} options={parentOptions} onChange={(v) => { setParentFilter(v); setOffset(0); }} />
                         <FilterDropdown label="Visibility" value={windowFilter} options={windowOptions} onChange={setFilter(setWindowFilter)} format={windowLabel} />
                         <div className={styles.grow} />
                         <Button icon={<DeleteRegular />} appearance="secondary" onClick={() => setConfirmClear(true)} disabled={total === 0}>Clear logs</Button>
@@ -523,14 +536,34 @@ function FilterDropdown({ label, value, options, onChange, format }: { label: st
     );
 }
 
-// Include-style multiselect with a synthetic "All" row.
-//  - "All" checked (the default) ⇔ empty selection ⇔ no filter; the individual rows are disabled.
-//  - Unchecking "All" checks every parent, so you can then uncheck a few (e.g. hide copilot.exe)
-//    without N clicks. Unchecking the last individual row falls back to "All".
-function MultiFilterDropdown({ label, values, options, onChange, format }: { label: string; values: string[]; options: string[]; onChange: (v: string[]) => void; format?: (v: string) => string }) {
+// Excel-style multiselect with a single tri-state "(All)" row, so both extremes stay cheap:
+//  - Default is "(All)" (no filter) with every parent shown checked. Unchecking one parent →
+//    "everything but that one" in a single click (the top row flips to a mixed/dash "N selected").
+//  - Clicking the top row toggles select-all / clear: check it (or from a partial state) selects
+//    all; clearing it, then checking a few → "just these" in a couple of clicks. Nothing checked
+//    shows no events ("checked = shown"). Individual rows are always enabled.
+function MultiFilterDropdown({ label, selection, options, onChange, format }: { label: string; selection: MultiSelection; options: string[]; onChange: (v: MultiSelection) => void; format?: (v: string) => string }) {
     const display = (v: string) => (format ? format(v) : v);
-    const allSelected = values.length === 0;
-    const text = allSelected ? "all" : values.length === 1 ? display(values[0]) : `${values.length} selected`;
+    const allMode = selection === "all";
+    const checked = allMode ? options : selection;
+    const allChecked = allMode || (options.length > 0 && checked.length === options.length);
+    const noneChecked = !allMode && checked.length === 0;
+    const state = allChecked ? "all" : noneChecked ? "none" : "some";
+
+    // The top row is "selected" for both all and some, so its check slot renders — a checkmark for
+    // all, a dash (mixed) for some — giving a real tri-state look.
+    const selectedOptions = [
+        ...(state !== "none" ? [ALL_SENTINEL] : []),
+        ...checked,
+    ];
+    const toggleLabel = state === "all" ? "(All)" : state === "none" ? "(None)" : `${checked.length} selected`;
+    const excluded = allMode ? [] : options.filter((o) => !checked.includes(o));
+    const text = allChecked ? "all"
+        : noneChecked ? "none"
+        : excluded.length === 1 ? `all but ${display(excluded[0])}`
+        : checked.length === 1 ? display(checked[0])
+        : `${checked.length} selected`;
+
     return (
         <div>
             <Caption1 block>{label}</Caption1>
@@ -538,21 +571,20 @@ function MultiFilterDropdown({ label, values, options, onChange, format }: { lab
                 multiselect
                 placeholder="all"
                 value={text}
-                selectedOptions={allSelected ? [ALL_SENTINEL] : values}
+                selectedOptions={selectedOptions}
                 onOptionSelect={(_, d) => {
                     const v = d.optionValue;
                     if (v === undefined) return;
-                    if (v === ALL_SENTINEL) {
-                        // On → switch to an explicit full set (so a few can be unchecked); off → back to all.
-                        onChange(allSelected ? [...options] : []);
-                        return;
-                    }
-                    if (allSelected) return; // individual rows are disabled while "All" is on
-                    onChange(values.includes(v) ? values.filter((x) => x !== v) : [...values, v]);
+                    // Top row toggles select-all / clear: all → none; some/none → all.
+                    if (v === ALL_SENTINEL) { onChange(allChecked ? [] : "all"); return; }
+                    // Toggle one parent; reaching the full set collapses back to "all".
+                    const base = allMode ? [...options] : [...selection];
+                    const next = base.includes(v) ? base.filter((x) => x !== v) : [...base, v];
+                    onChange(next.length === options.length ? "all" : next);
                 }}
             >
-                <Option key={ALL_SENTINEL} value={ALL_SENTINEL}>All</Option>
-                {options.map((o) => (<Option key={o} value={o} disabled={allSelected}>{display(o)}</Option>))}
+                <Option key={ALL_SENTINEL} value={ALL_SENTINEL} checkIcon={state === "some" ? { children: <SubtractRegular /> } : undefined}>{toggleLabel}</Option>
+                {options.map((o) => (<Option key={o} value={o}>{display(o)}</Option>))}
             </Dropdown>
         </div>
     );

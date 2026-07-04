@@ -77,6 +77,8 @@ public class AuditQueryTests
         Assert.Equal(4, AuditQuery.Query(Sample(), parent: " explorer.exe , notreal.exe ", limit: 100).Total);
         // Empty selection means no filter.
         Assert.Equal(10, AuditQuery.Query(Sample(), parent: "", limit: 100).Total);
+        // A selection that matches no parent (the viewer's "none checked" sentinel) yields nothing.
+        Assert.Equal(0, AuditQuery.Query(Sample(), parent: "\u0000__none__", limit: 100).Total);
     }
 
     [Fact]
