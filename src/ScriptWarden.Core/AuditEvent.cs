@@ -116,6 +116,12 @@ public sealed class AuditEvent
     /// <summary>Scripts/commands captured from this launch.</summary>
     public List<CapturedScript> Scripts { get; set; } = [];
 
+    /// <summary>
+    /// Web URLs (http/https/ftp) referenced on the command line — the "pull content from elsewhere"
+    /// signal (e.g. <c>iex (irm https://…)</c>). Captured, never fetched.
+    /// </summary>
+    public List<string> Urls { get; set; } = [];
+
     /// <summary>Which root this event was read from. Set by the reader; persisted value is ignored on read.</summary>
     [JsonConverter(typeof(JsonStringEnumConverter<AuditOrigin>))]
     public AuditOrigin Origin { get; set; } = AuditOrigin.Unknown;

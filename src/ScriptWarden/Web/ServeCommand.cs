@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ScriptWarden.Core;
@@ -213,18 +214,28 @@ internal static partial class ServeCommand
             return HttpResponse.Text("script not found", 404);
         }
 
-        byte[] body = File.ReadAllBytes(full);
-        var response = new HttpResponse
-        {
-            Status = 200,
-            ContentType = download ? "application/octet-stream" : "text/plain; charset=utf-8",
-            Body = body,
-        };
+        byte[] raw = File.ReadAllBytes(full);
         if (download)
         {
-            response.ContentDisposition = $"attachment; filename=\"{sha}{ext}\"";
+            // Downloads are byte-exact (forensic copy): serve raw bytes untouched.
+            return new HttpResponse
+            {
+                Status = 200,
+                ContentType = "application/octet-stream",
+                Body = raw,
+                ContentDisposition = $"attachment; filename=\"{sha}{ext}\"",
+            };
         }
-        return response;
+
+        // For inline viewing, decode from the content's real encoding (UTF-16 with or without a
+        // BOM is common for management-tooling scripts) and re-emit as UTF-8 so it renders correctly.
+        byte[] text = Encoding.UTF8.GetBytes(ScriptText.DecodeToText(raw));
+        return new HttpResponse
+        {
+            Status = 200,
+            ContentType = "text/plain; charset=utf-8",
+            Body = text,
+        };
     }
 
     /// <summary>Validates a script reference: SHA-256 hex (64 chars) and a simple dotted extension.</summary>
