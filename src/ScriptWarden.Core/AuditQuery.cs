@@ -53,7 +53,7 @@ public static class AuditQuery
         {
             if (!MatchesExact(image, e.HookedImage)) continue;
             if (!MatchesExact(origin, e.Origin.ToString())) continue;
-            if (!MatchesExact(parent, e.ParentProcessName ?? "")) continue;
+            if (!MatchesAny(parent, e.ParentProcessName ?? "")) continue;
             if (!MatchesExact(window, e.Window.ToString())) continue;
             if (q is not null && !MatchesSearch(e, q)) continue;
             filtered.Add(e);
@@ -92,6 +92,22 @@ public static class AuditQuery
 
     private static bool MatchesExact(string? filter, string value) =>
         filter is null || filter == All || string.Equals(filter, value, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Multi-value include filter: <paramref name="filter"/> is a comma-separated set of accepted
+    /// values (as sent by the viewer's multiselect). Null/empty/"all" means no filter; otherwise the
+    /// value must equal one of the listed entries. Windows image names never contain commas, so a
+    /// comma is a safe delimiter.
+    /// </summary>
+    private static bool MatchesAny(string? filter, string value)
+    {
+        if (string.IsNullOrWhiteSpace(filter) || filter == All) return true;
+        foreach (string part in filter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (string.Equals(part, value, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
 
     private static bool MatchesSearch(AuditEvent e, string q)
     {

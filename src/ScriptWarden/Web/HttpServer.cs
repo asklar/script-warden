@@ -51,6 +51,7 @@ internal sealed class HttpServer
 {
     private readonly int _port;
     private readonly Func<HttpRequest, HttpResponse> _handler;
+    private TcpListener? _listener;
 
     public HttpServer(int port, Func<HttpRequest, HttpResponse> handler)
     {
@@ -58,10 +59,18 @@ internal sealed class HttpServer
         _handler = handler;
     }
 
-    public void Run()
+    /// <summary>Binds and begins listening. Once this returns, connections are accepted (queued),
+    /// so it's safe to open the browser — no "connection refused" / blank page race.</summary>
+    public void Start()
     {
-        var listener = new TcpListener(IPAddress.Loopback, _port);
-        listener.Start();
+        _listener = new TcpListener(IPAddress.Loopback, _port);
+        _listener.Start();
+    }
+
+    /// <summary>Blocks, serving requests. <see cref="Start"/> must have been called first.</summary>
+    public void AcceptLoop()
+    {
+        TcpListener listener = _listener ?? throw new InvalidOperationException("Start() must be called before AcceptLoop().");
         while (true)
         {
             TcpClient client = listener.AcceptTcpClient();
