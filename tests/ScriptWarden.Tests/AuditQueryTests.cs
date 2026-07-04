@@ -69,6 +69,17 @@ public class AuditQueryTests
     }
 
     [Fact]
+    public void Query_ParentFilter_AcceptsCommaSeparatedIncludeSet()
+    {
+        // 6 copilot.exe + 4 explorer.exe = 10 total.
+        Assert.Equal(10, AuditQuery.Query(Sample(), parent: "copilot.exe,explorer.exe", limit: 100).Total);
+        // Whitespace around entries is tolerated; unknown entries are simply ignored.
+        Assert.Equal(4, AuditQuery.Query(Sample(), parent: " explorer.exe , notreal.exe ", limit: 100).Total);
+        // Empty selection means no filter.
+        Assert.Equal(10, AuditQuery.Query(Sample(), parent: "", limit: 100).Total);
+    }
+
+    [Fact]
     public void Query_AllSentinel_IsNoFilter()
     {
         Assert.Equal(10, AuditQuery.Query(Sample(), image: "all", origin: "all", limit: 100).Total);

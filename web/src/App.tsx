@@ -267,7 +267,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
     const [debouncedSearch, setDebouncedSearch] = useState("");
     const [imageFilter, setImageFilter] = useState(ALL);
     const [originFilter, setOriginFilter] = useState(ALL);
-    const [parentFilter, setParentFilter] = useState(ALL);
+    const [parentFilter, setParentFilter] = useState<string[]>([]);
     const [windowFilter, setWindowFilter] = useState(ALL);
     const [selected, setSelected] = useState<AuditEvent | null>(null);
     const [confirmClear, setConfirmClear] = useState(false);
@@ -284,7 +284,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                     limit: pageSize,
                     image: imageFilter,
                     origin: originFilter,
-                    parent: parentFilter,
+                    parent: parentFilter.length ? parentFilter.join(",") : undefined,
                     window: windowFilter,
                     q: debouncedSearch,
                 }),
@@ -338,7 +338,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
 
     const unreadable: RootDto[] = status?.roots.filter((r) => !r.readable) ?? [];
     const imageOptions = [ALL, ...(status?.images ?? [])];
-    const parentOptions = [ALL, ...(status?.parents ?? [])];
+    const parentOptions = status?.parents ?? [];
     const windowOptions = [ALL, ...(status?.windows ?? [])];
 
     const pageStart = total === 0 ? 0 : offset + 1;
@@ -417,7 +417,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                         </div>
                         <FilterDropdown label="Interpreter" value={imageFilter} options={imageOptions} onChange={setFilter(setImageFilter)} />
                         <FilterDropdown label="Origin" value={originFilter} options={[ALL, "CurrentUser", "System"]} onChange={setFilter(setOriginFilter)} />
-                        <FilterDropdown label="Parent" value={parentFilter} options={parentOptions} onChange={setFilter(setParentFilter)} />
+                        <MultiFilterDropdown label="Parent" values={parentFilter} options={parentOptions} onChange={(v) => { setParentFilter(v); setOffset(0); }} />
                         <FilterDropdown label="Visibility" value={windowFilter} options={windowOptions} onChange={setFilter(setWindowFilter)} format={windowLabel} />
                         <div className={styles.grow} />
                         <Button icon={<DeleteRegular />} appearance="secondary" onClick={() => setConfirmClear(true)} disabled={total === 0}>Clear logs</Button>
@@ -510,6 +510,21 @@ function FilterDropdown({ label, value, options, onChange, format }: { label: st
         <div>
             <Caption1 block>{label}</Caption1>
             <Dropdown value={display(value)} selectedOptions={[value]} onOptionSelect={(_, d) => onChange(d.optionValue ?? ALL)}>
+                {options.map((o) => (<Option key={o} value={o}>{display(o)}</Option>))}
+            </Dropdown>
+        </div>
+    );
+}
+
+// Include-style multiselect: no selection means "all"; otherwise show only the checked values.
+// (To see "everything but copilot.exe", select every other parent.)
+function MultiFilterDropdown({ label, values, options, onChange, format }: { label: string; values: string[]; options: string[]; onChange: (v: string[]) => void; format?: (v: string) => string }) {
+    const display = (v: string) => (format ? format(v) : v);
+    const text = values.length === 0 ? "all" : values.length === 1 ? display(values[0]) : `${values.length} selected`;
+    return (
+        <div>
+            <Caption1 block>{label}</Caption1>
+            <Dropdown multiselect placeholder="all" value={text} selectedOptions={values} onOptionSelect={(_, d) => onChange(d.selectedOptions)}>
                 {options.map((o) => (<Option key={o} value={o}>{display(o)}</Option>))}
             </Dropdown>
         </div>
