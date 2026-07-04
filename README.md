@@ -48,6 +48,10 @@ captured:
 - Reads both your per-user data and the machine's SYSTEM-level data, so you can see scripts that ran
   with full privileges too.
 
+![Audit log: every script launch with interpreter, origin, visibility, and duration](docs/images/script-warden-list.png)
+
+![Detail view: command line, parent chain, and captured scripts](docs/images/script-warden-detail.png)
+
 ## Quick start
 
 > **Blog post**: [What Scripts Is Your IT Department Running on Your Machine?](https://asklar.dev/tools/windows/security/2026/07/03/script-warden/) covers the full story and the one clever Windows trick that makes it work.
