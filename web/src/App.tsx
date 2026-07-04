@@ -198,9 +198,19 @@ function originIcon(o: string) {
 // left-to-right (each arrow means "started"). The final, emphasized node is this launch itself.
 function LaunchChain({ event }: { event: AuditEvent }) {
     const styles = useStyles();
-    const parents = [...(event.ancestors ?? [])]
+    let parents = [...(event.ancestors ?? [])]
         .reverse()
         .map((a) => ({ name: a.name || "?", pid: a.pid, title: `${a.path || a.name || "?"} (pid ${a.pid})`, self: false }));
+    // Older events (recorded before ancestor-chain capture) have no chain — fall back to the
+    // immediate parent so we still show "parent → target" rather than a lone target.
+    if (parents.length === 0 && event.parentProcessName) {
+        parents = [{
+            name: event.parentProcessName,
+            pid: event.parentProcessId,
+            title: `${event.parentProcessPath || event.parentProcessName} (pid ${event.parentProcessId})`,
+            self: false,
+        }];
+    }
     const nodes = [
         ...parents,
         { name: event.hookedImage, pid: event.childProcessId, title: `${event.targetPath} (pid ${event.childProcessId})`, self: true },
