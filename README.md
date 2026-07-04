@@ -2,6 +2,8 @@
 
 **Record and review every script that runs on your Windows machine, including the hidden ones.**
 
+📝 **[Blog post: What Scripts Is Your IT Department Running on Your Machine?](https://asklar.dev/tools/windows/security/2026/07/03/script-warden/)**
+
 On a managed PC, your IT department, device-management tooling, and background automation
 constantly run scripts through PowerShell, `cmd`, and the Windows Script Host. Usually silently,
 with no window, and gone before you can look. script-warden gives you a durable record: what ran,
@@ -53,8 +55,6 @@ captured:
 ![Detail view: command line, parent chain, and captured scripts](docs/images/script-warden-detail.png)
 
 ## Quick start
-
-> **Blog post**: [What Scripts Is Your IT Department Running on Your Machine?](https://asklar.dev/tools/windows/security/2026/07/03/script-warden/) covers the full story and the one clever Windows trick that makes it work.
 
 Grab `script-warden.exe` (a single self-contained file, no runtime to install), then:
 
