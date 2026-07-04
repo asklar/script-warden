@@ -76,11 +76,11 @@ import {
     scriptUrl,
     TaxonomyInfo,
     RollupResponse,
+    AnalysisFilter,
     getTaxonomies,
     getRollup,
     refreshAnalysis,
     getAnalysisEvents,
-    searchScripts,
 } from "./api";
 
 const useStyles = makeStyles({
@@ -184,6 +184,15 @@ function windowLabel(w: string): string {
     if (w === "Windowed") return "Visible";
     if (w === "NoWindow") return "Hidden";
     return w || "Unknown";
+}
+
+function timeLabel(preset: string): string {
+    switch (preset) {
+        case "24h": return "Last 24 hours";
+        case "7d": return "Last 7 days";
+        case "30d": return "Last 30 days";
+        default: return "All time";
+    }
 }
 
 function windowIcon(w: string) {
@@ -597,7 +606,11 @@ function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void
     const [rollup, setRollup] = useState<RollupResponse | null>(null);
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
-    const [query, setQuery] = useState("");
+    const [mentions, setMentions] = useState("");
+    const [debouncedMentions, setDebouncedMentions] = useState("");
+    const [timePreset, setTimePreset] = useState("all");
+    const [selected, setSelected] = useState<Record<string, string[]>>({});
+    const [matched, setMatched] = useState(0);
     const [detail, setDetail] = useState<{ title: string; events: AuditEvent[] } | null>(null);
 
     const fail = (e: unknown) => onError(e instanceof Error ? e.message : String(e));
@@ -610,38 +623,52 @@ function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    async function loadRollup(tax: string) {
+    function buildFilters(): AnalysisFilter[] {
+        const filters: AnalysisFilter[] = [];
+        for (const t of taxonomies) {
+            if (t.id === taxonomy) continue;
+            const labels = selected[t.id];
+            if (labels && labels.length > 0) filters.push({ type: "taxonomy", taxonomy: t.id, op: "include", labels });
+        }
+        const presetMs: Record<string, number> = { "24h": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000 };
+        if (timePreset in presetMs) filters.push({ type: "time", sinceMs: Date.now() - presetMs[timePreset] });
+        const q = debouncedMentions.trim();
+        if (q) filters.push({ type: "content", query: q });
+        return filters;
+    }
+
+    async function loadRollup() {
         setLoading(true);
         try {
-            setRollup(await getRollup(tax));
+            const res = await getRollup({ groupBy: taxonomy, filters: buildFilters() });
+            setRollup(res);
+            setMatched(res.matchedEvents);
             setDetail(null);
         } catch (e) { fail(e); } finally { setLoading(false); }
     }
+    const loadRef = useRef(loadRollup);
+    loadRef.current = loadRollup;
 
-    useEffect(() => { void loadRollup(taxonomy); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [taxonomy]);
+    useEffect(() => { const id = setTimeout(() => setDebouncedMentions(mentions), 300); return () => clearTimeout(id); }, [mentions]);
+
+    useEffect(() => {
+        void loadRef.current();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [taxonomy, selected, timePreset, debouncedMentions]);
 
     async function doRefresh() {
         setRefreshing(true);
         try {
             await refreshAnalysis();
             setTaxonomies(await getTaxonomies());
-            await loadRollup(taxonomy);
+            await loadRef.current();
         } catch (e) { fail(e); } finally { setRefreshing(false); }
     }
 
     async function drill(label: string) {
         try {
-            const page = await getAnalysisEvents(taxonomy, label, 0, 200);
+            const page = await getAnalysisEvents({ groupBy: taxonomy, drillLabel: label, filters: buildFilters(), limit: 200 });
             setDetail({ title: `${label} — ${page.total} event(s)`, events: page.events });
-        } catch (e) { fail(e); }
-    }
-
-    async function doSearch() {
-        const q = query.trim();
-        if (!q) { setDetail(null); return; }
-        try {
-            const page = await searchScripts(q, 0, 200);
-            setDetail({ title: `Scripts mentioning “${q}” — ${page.total} event(s)`, events: page.events });
         } catch (e) { fail(e); }
     }
 
@@ -658,20 +685,41 @@ function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void
                     onChange={setTaxonomy}
                     format={(id) => taxonomies.find((t) => t.id === id)?.name ?? id}
                 />
+                <div>
+                    <Caption1 block>Time range</Caption1>
+                    <Dropdown value={timeLabel(timePreset)} selectedOptions={[timePreset]} onOptionSelect={(_, d) => setTimePreset(d.optionValue ?? "all")}>
+                        <Option value="all">All time</Option>
+                        <Option value="24h">Last 24 hours</Option>
+                        <Option value="7d">Last 7 days</Option>
+                        <Option value="30d">Last 30 days</Option>
+                    </Dropdown>
+                </div>
+                <div className={styles.search}>
+                    <Caption1 block>Script mentions</Caption1>
+                    <Input placeholder="e.g. outlook.exe" value={mentions} onChange={(_, d) => setMentions(d.value)} contentBefore={<SearchRegular />} />
+                </div>
+                {taxonomies.filter((t) => t.id !== taxonomy).map((t) => (
+                    <div key={t.id}>
+                        <Caption1 block>{t.name}</Caption1>
+                        <Dropdown
+                            multiselect
+                            placeholder="any"
+                            value={selected[t.id]?.length ? `${selected[t.id].length} selected` : ""}
+                            selectedOptions={selected[t.id] ?? []}
+                            onOptionSelect={(_, d) => setSelected((s) => ({ ...s, [t.id]: d.selectedOptions }))}
+                        >
+                            {t.labels.map((l) => (<Option key={l} value={l}>{l}</Option>))}
+                        </Dropdown>
+                    </div>
+                ))}
+                <div className={styles.grow} />
                 <Button icon={<ArrowClockwiseRegular />} appearance="primary" disabled={refreshing} onClick={() => void doRefresh()}>
                     {refreshing ? "Analyzing…" : "Refresh analysis"}
                 </Button>
-                <div className={styles.grow} />
-                <div className={styles.search}>
-                    <Input placeholder="Find scripts that mention… (e.g. outlook.exe)" value={query}
-                        onChange={(_, d) => setQuery(d.value)} onKeyDown={(e) => { if (e.key === "Enter") void doSearch(); }}
-                        contentBefore={<SearchRegular />} />
-                </div>
-                <Button icon={<SearchRegular />} onClick={() => void doSearch()}>Search</Button>
             </div>
 
             <Caption1>
-                {total} event(s) analyzed. Click a group to see its events; “Refresh analysis” ingests anything new since last time.
+                {matched.toLocaleString()} of {total.toLocaleString()} events match. Click a group to see its events; “Refresh analysis” ingests anything new since last time.
             </Caption1>
 
             {loading ? (
@@ -684,7 +732,7 @@ function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void
                             <div className={styles.rollupTrack}>
                                 <div className={styles.rollupFill} style={{ width: `${maxCount ? Math.max(2, (100 * r.count) / maxCount) : 0}%` }} />
                             </div>
-                            <div className={styles.rollupMeta}>{r.count} · {fmtDuration(r.totalMs)} · {total ? Math.round((100 * r.count) / total) : 0}%</div>
+                            <div className={styles.rollupMeta}>{r.count} · {fmtDuration(r.totalMs)} · {matched ? Math.round((100 * r.count) / matched) : 0}%</div>
                         </div>
                     ))}
                 </div>

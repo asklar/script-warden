@@ -18,7 +18,7 @@ namespace ScriptWarden.Analysis;
 internal sealed class AnalysisStore : IDisposable
 {
     private const int SchemaVersion = 1;
-    private const string EngineVersion = "2"; // bump to force re-labeling of existing events
+    private const string EngineVersion = "3"; // bump to force re-labeling of existing events
     private const int BatchSize = 400;
     private readonly object _lock = new();
     private readonly string _dbPath;
@@ -328,30 +328,94 @@ internal sealed class AnalysisStore : IDisposable
         _ingested[origin + "|" + name] = (mtime, size);
     }
 
-    // ---- queries ----
+    // ---- queries (filter-driven) ----
 
     public readonly record struct RollupRow(string Label, int Count, long TotalMs);
 
-    public List<RollupRow> Rollup(string taxonomyId, string? filterTaxonomyId, string? filterLabel)
+    /// <summary>
+    /// Builds the AND-ed WHERE conjuncts for a filter set, binding parameters to <paramref name="cmd"/>.
+    /// Each conjunct constrains the events aliased <paramref name="alias"/>; within a taxonomy filter,
+    /// labels are OR-ed (IN / NOT IN). Returned string is empty or begins with " AND ".
+    /// </summary>
+    private static string BuildFilters(List<AnalysisFilter>? filters, SqliteCommand cmd, string alias)
+    {
+        if (filters is null || filters.Count == 0)
+        {
+            return "";
+        }
+        var sb = new StringBuilder();
+        int n = 0;
+        foreach (AnalysisFilter f in filters)
+        {
+            switch ((f.Type ?? "").ToLowerInvariant())
+            {
+                case "taxonomy":
+                    if (string.IsNullOrEmpty(f.Taxonomy) || f.Labels is not { Count: > 0 })
+                    {
+                        break;
+                    }
+                    var ph = new List<string>();
+                    foreach (string label in f.Labels)
+                    {
+                        string p = "$f" + n++;
+                        ph.Add(p);
+                        cmd.Parameters.AddWithValue(p, label);
+                    }
+                    string tp = "$f" + n++;
+                    cmd.Parameters.AddWithValue(tp, f.Taxonomy);
+                    string not = string.Equals(f.Op, "exclude", StringComparison.OrdinalIgnoreCase) ? "NOT " : "";
+                    sb.Append($" AND {alias}.event_id {not}IN (SELECT event_id FROM labels WHERE taxonomy_id={tp} AND label IN ({string.Join(",", ph)}))");
+                    break;
+
+                case "time":
+                    if (f.SinceMs is long since)
+                    {
+                        string p = "$f" + n++;
+                        cmd.Parameters.AddWithValue(p, since);
+                        sb.Append($" AND {alias}.ts_unix >= {p}");
+                    }
+                    if (f.UntilMs is long until)
+                    {
+                        string p = "$f" + n++;
+                        cmd.Parameters.AddWithValue(p, until);
+                        sb.Append($" AND {alias}.ts_unix < {p}");
+                    }
+                    break;
+
+                case "duration":
+                    if (f.MinDurationMs is long dur)
+                    {
+                        string p = "$f" + n++;
+                        cmd.Parameters.AddWithValue(p, dur);
+                        sb.Append($" AND {alias}.duration_ms >= {p}");
+                    }
+                    break;
+
+                case "content":
+                    if (!string.IsNullOrWhiteSpace(f.Query))
+                    {
+                        string p = "$f" + n++;
+                        cmd.Parameters.AddWithValue(p, "\"" + f.Query.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"");
+                        sb.Append($" AND {alias}.event_id IN (SELECT es.event_id FROM scripts_fts fts JOIN event_scripts es ON es.sha=fts.sha WHERE fts.content MATCH {p})");
+                    }
+                    break;
+            }
+        }
+        return sb.ToString();
+    }
+
+    public List<RollupRow> Rollup(string taxonomyId, List<AnalysisFilter>? filters)
     {
         lock (_lock)
         {
             var rows = new List<RollupRow>();
             using SqliteCommand cmd = _conn!.CreateCommand();
-            var sql = new StringBuilder("""
-                SELECT l.label, COUNT(DISTINCT e.event_id), COALESCE(SUM(e.duration_ms),0)
-                FROM labels l JOIN events e ON e.event_id = l.event_id
-                WHERE l.taxonomy_id = $tax
-                """);
             cmd.Parameters.AddWithValue("$tax", taxonomyId);
-            if (!string.IsNullOrEmpty(filterTaxonomyId) && !string.IsNullOrEmpty(filterLabel))
-            {
-                sql.Append(" AND e.event_id IN (SELECT event_id FROM labels WHERE taxonomy_id=$ft AND label=$fl)");
-                cmd.Parameters.AddWithValue("$ft", filterTaxonomyId);
-                cmd.Parameters.AddWithValue("$fl", filterLabel);
-            }
-            sql.Append(" GROUP BY l.label ORDER BY COUNT(DISTINCT e.event_id) DESC;");
-            cmd.CommandText = sql.ToString();
+            cmd.CommandText =
+                "SELECT l.label, COUNT(DISTINCT e.event_id), COALESCE(SUM(e.duration_ms),0) " +
+                "FROM labels l JOIN events e ON e.event_id = l.event_id WHERE l.taxonomy_id = $tax" +
+                BuildFilters(filters, cmd, "e") +
+                " GROUP BY l.label ORDER BY COUNT(DISTINCT e.event_id) DESC;";
             using SqliteDataReader r = cmd.ExecuteReader();
             while (r.Read())
             {
@@ -361,67 +425,51 @@ internal sealed class AnalysisStore : IDisposable
         }
     }
 
-    public (int Total, List<AuditEvent> Events) DrillEvents(string taxonomyId, string label, int offset, int limit)
+    /// <summary>Count of distinct events matching the filter set (ignoring any grouping).</summary>
+    public int MatchCount(List<AnalysisFilter>? filters)
     {
         lock (_lock)
         {
-            int total;
-            using (SqliteCommand c = _conn!.CreateCommand())
-            {
-                c.CommandText = "SELECT COUNT(DISTINCT event_id) FROM labels WHERE taxonomy_id=$t AND label=$l;";
-                c.Parameters.AddWithValue("$t", taxonomyId);
-                c.Parameters.AddWithValue("$l", label);
-                total = Convert.ToInt32(c.ExecuteScalar(), CultureInfo.InvariantCulture);
-            }
-            var events = new List<AuditEvent>();
-            using (SqliteCommand c = _conn!.CreateCommand())
-            {
-                c.CommandText = """
-                    SELECT e.json FROM labels l JOIN events e ON e.event_id=l.event_id
-                    WHERE l.taxonomy_id=$t AND l.label=$l
-                    ORDER BY e.ts_unix DESC LIMIT $lim OFFSET $off;
-                    """;
-                c.Parameters.AddWithValue("$t", taxonomyId);
-                c.Parameters.AddWithValue("$l", label);
-                c.Parameters.AddWithValue("$lim", Math.Clamp(limit, 1, 500));
-                c.Parameters.AddWithValue("$off", Math.Max(0, offset));
-                Read(c, events);
-            }
-            return (total, events);
+            using SqliteCommand cmd = _conn!.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM events e WHERE 1=1" + BuildFilters(filters, cmd, "e") + ";";
+            return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
         }
     }
 
-    public (int Total, List<AuditEvent> Events) Search(string query, int offset, int limit)
+    /// <summary>Events matching the filter set and (optionally) a specific group-by label. Newest first.</summary>
+    public (int Total, List<AuditEvent> Events) DrillEvents(string taxonomyId, string? label, List<AnalysisFilter>? filters, int offset, int limit)
     {
         lock (_lock)
         {
-            string match = "\"" + query.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
+            string labelClause = "";
+            void BindLabel(SqliteCommand c)
+            {
+                if (!string.IsNullOrEmpty(label))
+                {
+                    c.Parameters.AddWithValue("$lbl", label);
+                    c.Parameters.AddWithValue("$tax", taxonomyId);
+                }
+            }
+            if (!string.IsNullOrEmpty(label))
+            {
+                labelClause = " AND e.event_id IN (SELECT event_id FROM labels WHERE taxonomy_id=$tax AND label=$lbl)";
+            }
+
             int total;
             using (SqliteCommand c = _conn!.CreateCommand())
             {
-                c.CommandText = """
-                    SELECT COUNT(*) FROM (
-                      SELECT DISTINCT es.event_id FROM scripts_fts f
-                      JOIN event_scripts es ON es.sha=f.sha
-                      WHERE f.content MATCH $q);
-                    """;
-                c.Parameters.AddWithValue("$q", match);
+                BindLabel(c);
+                c.CommandText = "SELECT COUNT(*) FROM events e WHERE 1=1" + labelClause + BuildFilters(filters, c, "e") + ";";
                 total = Convert.ToInt32(c.ExecuteScalar(), CultureInfo.InvariantCulture);
             }
             var events = new List<AuditEvent>();
             using (SqliteCommand c = _conn!.CreateCommand())
             {
-                c.CommandText = """
-                    SELECT e.json FROM events e
-                    WHERE e.event_id IN (
-                      SELECT DISTINCT es.event_id FROM scripts_fts f
-                      JOIN event_scripts es ON es.sha=f.sha
-                      WHERE f.content MATCH $q)
-                    ORDER BY e.ts_unix DESC LIMIT $lim OFFSET $off;
-                    """;
-                c.Parameters.AddWithValue("$q", match);
+                BindLabel(c);
                 c.Parameters.AddWithValue("$lim", Math.Clamp(limit, 1, 500));
                 c.Parameters.AddWithValue("$off", Math.Max(0, offset));
+                c.CommandText = "SELECT e.json FROM events e WHERE 1=1" + labelClause + BuildFilters(filters, c, "e") +
+                    " ORDER BY e.ts_unix DESC LIMIT $lim OFFSET $off;";
                 Read(c, events);
             }
             return (total, events);

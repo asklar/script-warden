@@ -37,26 +37,30 @@ internal sealed class AnalysisService : IDisposable
 
     public List<TaxonomyInfoDto> Taxonomies() =>
         TaxonomyStore.Load(DataRoots.CurrentUserRoot())
-            .Select(t => new TaxonomyInfoDto { Id = t.Id, Name = t.Name, MultiLabel = t.MultiLabel })
+            .Select(t => new TaxonomyInfoDto
+            {
+                Id = t.Id,
+                Name = t.Name,
+                MultiLabel = t.MultiLabel,
+                Labels = t.Rules.Select(r => r.Label).Where(l => !string.IsNullOrEmpty(l)).Distinct().ToList(),
+            })
             .ToList();
 
-    public RollupResponse Rollup(string taxonomy, string? filterTaxonomy, string? filterLabel)
+    public RollupResponse Rollup(AnalysisRequest req)
     {
         AnalysisStore store = Store();
-        List<AnalysisStore.RollupRow> rows = store.Rollup(taxonomy, filterTaxonomy, filterLabel);
+        List<AnalysisStore.RollupRow> rows = store.Rollup(req.GroupBy, req.Filters);
         return new RollupResponse
         {
-            Taxonomy = taxonomy,
+            Taxonomy = req.GroupBy,
             TotalEvents = store.Count(),
+            MatchedEvents = store.MatchCount(req.Filters),
             Rows = rows.Select(r => new RollupRowDto { Label = r.Label, Count = r.Count, TotalMs = r.TotalMs }).ToList(),
         };
     }
 
-    public (int Total, List<AuditEvent> Events) Drill(string taxonomy, string label, int offset, int limit) =>
-        Store().DrillEvents(taxonomy, label, offset, limit);
-
-    public (int Total, List<AuditEvent> Events) Search(string query, int offset, int limit) =>
-        Store().Search(query, offset, limit);
+    public (int Total, List<AuditEvent> Events) Drill(AnalysisRequest req) =>
+        Store().DrillEvents(req.GroupBy, req.DrillLabel, req.Filters, req.Offset, req.Limit);
 
     public void Dispose()
     {

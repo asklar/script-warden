@@ -15,6 +15,8 @@ public sealed class EventFacts
     public string? User { get; init; }
     public string? UserSid { get; init; }
     public string? Window { get; init; }
+    public string? Origin { get; init; }
+    public string? ExitCode { get; init; }
     public string? ParentName { get; init; }
     public IReadOnlyList<string> AncestorNames { get; init; } = [];
     public IReadOnlyList<string> AncestorPaths { get; init; } = [];
@@ -53,6 +55,8 @@ public sealed class EventFacts
             User = ev.User,
             UserSid = ev.UserSid,
             Window = ev.Window.ToString(),
+            Origin = ev.Origin.ToString(),
+            ExitCode = ev.ExitCode?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
             ParentName = ev.ParentProcessName,
             AncestorNames = names,
             AncestorPaths = paths,

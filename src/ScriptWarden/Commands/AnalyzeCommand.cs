@@ -49,9 +49,16 @@ internal static class AnalyzeCommand
         Console.WriteLine($"Analyzed {refresh.Total} event(s) (+{refresh.Ingested} new{(refresh.Reclassified ? ", re-labeled after taxonomy change" : "")}).");
         Console.WriteLine();
 
+        var filters = new List<AnalysisFilter>();
+        if (opts.Get("filter-taxonomy") is { Length: > 0 } filterTax && opts.Get("filter-label") is { Length: > 0 } filterLabel)
+        {
+            filters.Add(new AnalysisFilter { Type = "taxonomy", Taxonomy = filterTax, Op = "include", Labels = [filterLabel] });
+        }
+
         if (opts.Get("search") is { Length: > 0 } query)
         {
-            return PrintSearch(store, query, limit, opts.Has("json"));
+            filters.Add(new AnalysisFilter { Type = "content", Query = query });
+            return PrintEvents(store, filters, limit, opts.Has("json"), $"Scripts mentioning \"{query}\"");
         }
 
         string groupBy = opts.Get("group-by") ?? "source";
@@ -61,9 +68,7 @@ internal static class AnalyzeCommand
             return 2;
         }
 
-        string? filterTax = opts.Get("filter-taxonomy");
-        string? filterLabel = opts.Get("filter-label");
-        List<AnalysisStore.RollupRow> rows = store.Rollup(groupBy, filterTax, filterLabel);
+        List<AnalysisStore.RollupRow> rows = store.Rollup(groupBy, filters);
         int totalEvents = store.Count();
 
         if (opts.Has("json"))
@@ -74,7 +79,7 @@ internal static class AnalyzeCommand
         }
 
         Taxonomy tax = taxonomies.First(t => string.Equals(t.Id, groupBy, StringComparison.OrdinalIgnoreCase));
-        string filterNote = filterTax is not null && filterLabel is not null ? $"  (filtered to {filterTax} = {filterLabel})" : "";
+        string filterNote = filters.Count > 0 ? $"  (filtered)" : "";
         Console.WriteLine($"Group by: {tax.Name}{filterNote}");
         Console.WriteLine($"{"label",-26} {"launches",8}   {"total time",10}   {"%",6}");
         Console.WriteLine(new string('-', 60));
@@ -90,15 +95,15 @@ internal static class AnalyzeCommand
         return 0;
     }
 
-    private static int PrintSearch(AnalysisStore store, string query, int limit, bool json)
+    private static int PrintEvents(AnalysisStore store, List<AnalysisFilter> filters, int limit, bool json, string header)
     {
-        (int total, List<AuditEvent> events) = store.Search(query, 0, limit);
+        (int total, List<AuditEvent> events) = store.DrillEvents("", null, filters, 0, limit);
         if (json)
         {
             Console.WriteLine(JsonSerializer.Serialize(events, AuditJsonContext.Default.ListAuditEvent));
             return 0;
         }
-        Console.WriteLine($"Scripts mentioning \"{query}\": {total} event(s); showing up to {limit}.");
+        Console.WriteLine($"{header}: {total} event(s); showing up to {limit}.");
         Console.WriteLine($"{"time (UTC)",-20} {"image",-16} detail");
         Console.WriteLine(new string('-', 80));
         foreach (AuditEvent e in events)

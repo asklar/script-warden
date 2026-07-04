@@ -138,6 +138,7 @@ export interface TaxonomyInfo {
     id: string;
     name: string;
     multiLabel: boolean;
+    labels: string[];
 }
 
 export interface RollupRow {
@@ -149,6 +150,7 @@ export interface RollupRow {
 export interface RollupResponse {
     taxonomy: string;
     totalEvents: number;
+    matchedEvents: number;
     rows: RollupRow[];
 }
 
@@ -156,6 +158,25 @@ export interface RefreshResponse {
     ingested: number;
     total: number;
     reclassified: boolean;
+}
+
+export interface AnalysisFilter {
+    type: "taxonomy" | "time" | "duration" | "content";
+    taxonomy?: string;
+    op?: "include" | "exclude";
+    labels?: string[];
+    sinceMs?: number;
+    untilMs?: number;
+    minDurationMs?: number;
+    query?: string;
+}
+
+export interface AnalysisRequest {
+    groupBy: string;
+    filters: AnalysisFilter[];
+    drillLabel?: string;
+    offset?: number;
+    limit?: number;
 }
 
 export async function refreshAnalysis(): Promise<RefreshResponse> {
@@ -170,27 +191,22 @@ export async function getTaxonomies(): Promise<TaxonomyInfo[]> {
     return r.json();
 }
 
-export async function getRollup(taxonomy: string, filterTaxonomy?: string, filterLabel?: string): Promise<RollupResponse> {
-    const params = new URLSearchParams({ taxonomy });
-    if (filterTaxonomy && filterLabel) {
-        params.set("filterTaxonomy", filterTaxonomy);
-        params.set("filterLabel", filterLabel);
-    }
-    const r = await fetch(`/api/analysis/rollup?${params.toString()}`);
+export async function getRollup(request: AnalysisRequest): Promise<RollupResponse> {
+    const r = await fetch("/api/analysis/rollup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
     if (!r.ok) throw new Error(`status ${r.status}`);
     return r.json();
 }
 
-export async function getAnalysisEvents(taxonomy: string, label: string, offset = 0, limit = 100): Promise<EventsPage> {
-    const params = new URLSearchParams({ taxonomy, label, offset: String(offset), limit: String(limit) });
-    const r = await fetch(`/api/analysis/events?${params.toString()}`);
-    if (!r.ok) throw new Error(`status ${r.status}`);
-    return r.json();
-}
-
-export async function searchScripts(q: string, offset = 0, limit = 100): Promise<EventsPage> {
-    const params = new URLSearchParams({ q, offset: String(offset), limit: String(limit) });
-    const r = await fetch(`/api/analysis/search?${params.toString()}`);
+export async function getAnalysisEvents(request: AnalysisRequest): Promise<EventsPage> {
+    const r = await fetch("/api/analysis/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
     if (!r.ok) throw new Error(`status ${r.status}`);
     return r.json();
 }

@@ -81,6 +81,20 @@ internal static partial class ServeCommand
                     : HttpResponse.Text("Method Not Allowed", 405);
             }
 
+            if (req.Path == "/api/analysis/rollup")
+            {
+                return string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase)
+                    ? ApiAnalysisRollup(req)
+                    : HttpResponse.Text("Method Not Allowed", 405);
+            }
+
+            if (req.Path == "/api/analysis/events")
+            {
+                return string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase)
+                    ? ApiAnalysisEvents(req)
+                    : HttpResponse.Text("Method Not Allowed", 405);
+            }
+
             return req.Path switch
             {
                 "/" or "/index.html" => ServeIndex(),
@@ -88,9 +102,6 @@ internal static partial class ServeCommand
                 "/api/events" => ApiEvents(req),
                 "/api/script" => ApiScript(req),
                 "/api/analysis/taxonomies" => ApiAnalysisTaxonomies(),
-                "/api/analysis/rollup" => ApiAnalysisRollup(req),
-                "/api/analysis/events" => ApiAnalysisEvents(req),
-                "/api/analysis/search" => ApiAnalysisSearch(req),
                 _ => HttpResponse.Text("Not Found", 404),
             };
         }
@@ -276,36 +287,33 @@ internal static partial class ServeCommand
 
     private static HttpResponse ApiAnalysisRollup(HttpRequest req)
     {
-        string taxonomy = req.Query.GetValueOrDefault("taxonomy", "source");
-        string? ft = req.Query.GetValueOrDefault("filterTaxonomy");
-        string? fl = req.Query.GetValueOrDefault("filterLabel");
-        RollupResponse result = Analysis.Rollup(taxonomy, ft, fl);
+        AnalysisRequest request = ParseAnalysisRequest(req.Body);
+        RollupResponse result = Analysis.Rollup(request);
         return HttpResponse.Json(JsonSerializer.Serialize(result, AnalysisApiJsonContext.Default.RollupResponse));
     }
 
     private static HttpResponse ApiAnalysisEvents(HttpRequest req)
     {
-        string taxonomy = req.Query.GetValueOrDefault("taxonomy", "");
-        string label = req.Query.GetValueOrDefault("label", "");
-        int offset = ParseInt(req.Query.GetValueOrDefault("offset"), 0);
-        int limit = Math.Clamp(ParseInt(req.Query.GetValueOrDefault("limit"), 100), 1, 500);
-        (int total, List<AuditEvent> events) = Analysis.Drill(taxonomy, label, offset, limit);
-        var page = new EventsPage { Total = total, Offset = offset, Limit = limit, Events = events };
+        AnalysisRequest request = ParseAnalysisRequest(req.Body);
+        (int total, List<AuditEvent> events) = Analysis.Drill(request);
+        var page = new EventsPage { Total = total, Offset = request.Offset, Limit = request.Limit, Events = events };
         return HttpResponse.Json(JsonSerializer.Serialize(page, AuditJsonContext.Default.EventsPage));
     }
 
-    private static HttpResponse ApiAnalysisSearch(HttpRequest req)
+    private static AnalysisRequest ParseAnalysisRequest(string body)
     {
-        string q = req.Query.GetValueOrDefault("q", "");
-        int offset = ParseInt(req.Query.GetValueOrDefault("offset"), 0);
-        int limit = Math.Clamp(ParseInt(req.Query.GetValueOrDefault("limit"), 100), 1, 500);
-        if (string.IsNullOrWhiteSpace(q))
+        if (string.IsNullOrWhiteSpace(body))
         {
-            return HttpResponse.Json(JsonSerializer.Serialize(new EventsPage { Offset = offset, Limit = limit }, AuditJsonContext.Default.EventsPage));
+            return new AnalysisRequest();
         }
-        (int total, List<AuditEvent> events) = Analysis.Search(q, offset, limit);
-        var page = new EventsPage { Total = total, Offset = offset, Limit = limit, Events = events };
-        return HttpResponse.Json(JsonSerializer.Serialize(page, AuditJsonContext.Default.EventsPage));
+        try
+        {
+            return JsonSerializer.Deserialize(body, AnalysisApiJsonContext.Default.AnalysisRequest) ?? new AnalysisRequest();
+        }
+        catch
+        {
+            return new AnalysisRequest();
+        }
     }
 
     private static HttpResponse ServeIndex()

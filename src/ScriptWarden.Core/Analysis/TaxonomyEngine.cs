@@ -126,6 +126,8 @@ public static class TaxonomyEngine
             case "user": return One(f.User);
             case "usersid": return One(f.UserSid);
             case "window": return One(f.Window);
+            case "origin": return One(f.Origin);
+            case "exitcode": return One(f.ExitCode);
             case "parentname": return One(f.ParentName);
             case "ancestorname": return f.AncestorNames;
             case "ancestorpath": return f.AncestorPaths;

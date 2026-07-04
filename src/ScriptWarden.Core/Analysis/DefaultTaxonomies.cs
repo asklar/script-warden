@@ -11,6 +11,10 @@ public static class DefaultTaxonomies
     {
         yield return Source();
         yield return Behavior();
+        yield return Visibility();
+        yield return Interpreter();
+        yield return Origin();
+        yield return Outcome();
     }
 
     private static Taxonomy Source() => new()
@@ -61,6 +65,61 @@ public static class DefaultTaxonomies
             Behavior("Remote execution", @"Invoke-Command|Enter-PSSession|wmic .* process call create|psexec"),
             Behavior("Credential / security", @"Get-Credential|\bcmdkey\b|\bcertutil\b|Export-\w*Certificate|\bsecedit\b"),
             Behavior("Obfuscation", @"-enc\b|-EncodedCommand|FromBase64String|-e\s+[A-Za-z0-9+/]{40,}"),
+        ],
+    };
+
+    private static Taxonomy Visibility() => new()
+    {
+        Id = "visibility",
+        Name = "Visibility",
+        MultiLabel = false,
+        Rules =
+        [
+            Rule("Visible", Eq("window", "Windowed")),
+            Rule("Hidden", Eq("window", "NoWindow")),
+            Default("Unknown"),
+        ],
+    };
+
+    private static Taxonomy Interpreter() => new()
+    {
+        Id = "interpreter",
+        Name = "Interpreter",
+        MultiLabel = false,
+        Rules =
+        [
+            Rule("Windows PowerShell", Eq("hookedImage", "powershell.exe")),
+            Rule("PowerShell 7", Eq("hookedImage", "pwsh.exe")),
+            Rule("Command Prompt", Eq("hookedImage", "cmd.exe")),
+            Rule("Console script host", Eq("hookedImage", "cscript.exe")),
+            Rule("Windows script host", Eq("hookedImage", "wscript.exe")),
+            Default("Other"),
+        ],
+    };
+
+    private static Taxonomy Origin() => new()
+    {
+        Id = "origin",
+        Name = "Ran as",
+        MultiLabel = false,
+        Rules =
+        [
+            Rule("Me (current user)", Eq("origin", "CurrentUser")),
+            Rule("SYSTEM", Eq("origin", "System")),
+            Default("Unknown"),
+        ],
+    };
+
+    private static Taxonomy Outcome() => new()
+    {
+        Id = "outcome",
+        Name = "Outcome",
+        MultiLabel = false,
+        Rules =
+        [
+            Rule("Succeeded", Eq("exitCode", "0")),
+            Rule("Failed", Rx("exitCode", @"^(?!0$).+")),
+            Default("Running / unknown"),
         ],
     };
 
