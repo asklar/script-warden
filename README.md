@@ -1,10 +1,9 @@
 # script-warden
 
-**See and review every script that runs on your Windows machine — including the ones you never
-started yourself.**
+**Record and review every script that runs on your Windows machine, including the hidden ones.**
 
 On a managed PC, your IT department, device-management tooling, and background automation
-constantly run scripts through PowerShell, `cmd`, and the Windows Script Host — usually silently,
+constantly run scripts through PowerShell, `cmd`, and the Windows Script Host. Usually silently,
 with no window, and gone before you can look. script-warden gives you a durable record: what ran,
 when, who started it, whether it was visible or hidden, and **a saved copy of the actual script**,
 all browsable in a local web viewer.
@@ -14,11 +13,11 @@ all browsable in a local web viewer.
 - **Know what's running on your own machine.** Logon scripts, scheduled tasks, config-management
   agents, and remote-management tools push scripts constantly. script-warden captures them so you
   can actually read what executed.
-- **Keep the evidence.** Even a script that deletes itself, decodes an inline command, or runs for
+- **Keep a copy.** Even a script that deletes itself, decodes an inline command, or runs for
   a few milliseconds in the background is copied and kept, content-addressed and de-duplicated.
 - **Spot the silent stuff.** Every launch is tagged **Visible** or **Hidden**, so you can filter to
   exactly the background scripts that ran with no console.
-- **Trace where it came from.** Each launch records its full parent chain — from the script all the
+- **Trace where it came from.** Each launch records its full parent chain, from the script all the
   way up to the management agent or scheduled-task host that kicked it off.
 - **Stay out of your way.** Interpreters keep working exactly as before; capturing is transparent
   and fail-open, so nothing you run breaks even if logging can't.
@@ -28,7 +27,7 @@ all browsable in a local web viewer.
 For every launch of `powershell.exe`, `cmd.exe`, `pwsh.exe`, `cscript.exe`, and `wscript.exe`:
 
 - The full, verbatim command line, working directory, user, and timestamp.
-- **The script itself** — referenced `.ps1`/`.bat`/`.cmd`/`.vbs`/`.js` files are copied; inline
+- **The script itself**: referenced `.ps1`/`.bat`/`.cmd`/`.vbs`/`.js` files are copied; inline
   `-Command` / `cmd /c` text is saved; `-EncodedCommand` payloads are decoded and saved as readable
   scripts.
 - Whether it ran **Visible** (had a console) or **Hidden** (no window / background).
@@ -51,7 +50,9 @@ captured:
 
 ## Quick start
 
-Grab `script-warden.exe` (a single self-contained file — no runtime to install), then:
+> **Blog post**: [What Scripts Is Your IT Department Running on Your Machine?](https://asklar.dev/tools/windows/security/2026/07/03/script-warden/) covers the full story and the one clever Windows trick that makes it work.
+
+Grab `script-warden.exe` (a single self-contained file, no runtime to install), then:
 
 ```powershell
 script-warden install      # start monitoring (prompts for admin; machine-wide)
@@ -71,15 +72,15 @@ script-warden list [--json] [--image NAME] [--since DATE] [--limit N]
 script-warden diagnose
 ```
 
-- **install** — begins monitoring the script hosts machine-wide (self-elevates). `--images` limits
+- **install** : begins monitoring the script hosts machine-wide (self-elevates). `--images` limits
   which interpreters; `--no-copy` runs from the current exe location instead of copying to Program
   Files.
-- **uninstall** — stops monitoring (removes only what script-warden added; never touches another
+- **uninstall** : stops monitoring (removes only what script-warden added; never touches another
   tool's settings).
-- **status** — shows which interpreters are currently monitored.
-- **serve** — starts the localhost viewer and opens a browser.
-- **list** — prints recent activity to the console (`--json` for scripting).
-- **diagnose** — self-test: resolved data locations + write access, current monitoring state, and a
+- **status** : shows which interpreters are currently monitored.
+- **serve** : starts the localhost viewer and opens a browser.
+- **list** : prints recent activity to the console (`--json` for scripting).
+- **diagnose** : self-test: resolved data locations + write access, current monitoring state, and a
   simulated capture of representative command lines. Run this first if something looks off.
 
 ## Where data lives
@@ -100,8 +101,8 @@ and flags it in the UI when it can't.
 
 ## Under the hood
 
-script-warden is a single **.NET 10 Native AOT** executable — fast to start (it runs on *every*
-interpreter launch) with no runtime dependency.
+script-warden is a single **.NET 10 Native AOT** (ahead-of-time compiled) executable. Fast to start (it runs on *every*
+interpreter launch), no runtime dependency.
 
 It works by registering itself as the **[Image File Execution Options][ifeo] `Debugger`** for each
 monitored interpreter. When an IFEO `Debugger` value is set for `image.exe`, Windows launches
@@ -109,8 +110,8 @@ monitored interpreter. When an IFEO `Debugger` value is set for `image.exe`, Win
 
 1. Records the launch metadata and captures any referenced or inline script.
 2. Relaunches the real interpreter with `CreateProcess(DEBUG_ONLY_THIS_PROCESS)` and immediately
-   detaches. The debug flag makes the loader **skip** the IFEO redirection — otherwise the relaunch
-   would re-invoke script-warden forever — and detaching lets the child run with completely normal
+   detaches. The debug flag makes the loader **skip** the IFEO redirection (otherwise the relaunch
+   would re-invoke script-warden forever), and detaching lets the child run with completely normal
    semantics. stdio, working directory, environment, and exit code are all forwarded, and the
    original command line is passed through verbatim (via `GetCommandLineW`, to preserve exact
    quoting under AOT).
