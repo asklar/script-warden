@@ -226,14 +226,17 @@ internal sealed class HttpServer
             int eq = pair.IndexOf('=');
             if (eq < 0)
             {
-                into[Uri.UnescapeDataString(pair)] = "";
+                into[DecodeComponent(pair)] = "";
             }
             else
             {
-                into[Uri.UnescapeDataString(pair[..eq])] = Uri.UnescapeDataString(pair[(eq + 1)..]);
+                into[DecodeComponent(pair[..eq])] = DecodeComponent(pair[(eq + 1)..]);
             }
         }
     }
+
+    // application/x-www-form-urlencoded: '+' means space (UnescapeDataString alone leaves '+' as-is).
+    private static string DecodeComponent(string s) => Uri.UnescapeDataString(s.Replace('+', ' '));
 
     private static void Write(NetworkStream stream, HttpResponse response)
     {

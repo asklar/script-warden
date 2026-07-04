@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ScriptWarden.Analysis;
 using ScriptWarden.Core;
 
 namespace ScriptWarden.Web;
@@ -73,12 +74,34 @@ internal static partial class ServeCommand
                     : ApiGetConfig();
             }
 
+            if (req.Path == "/api/analysis/refresh")
+            {
+                return string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase)
+                    ? ApiAnalysisRefresh()
+                    : HttpResponse.Text("Method Not Allowed", 405);
+            }
+
+            if (req.Path == "/api/analysis/rollup")
+            {
+                return string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase)
+                    ? ApiAnalysisRollup(req)
+                    : HttpResponse.Text("Method Not Allowed", 405);
+            }
+
+            if (req.Path == "/api/analysis/events")
+            {
+                return string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase)
+                    ? ApiAnalysisEvents(req)
+                    : HttpResponse.Text("Method Not Allowed", 405);
+            }
+
             return req.Path switch
             {
                 "/" or "/index.html" => ServeIndex(),
                 "/api/status" => ApiStatus(),
                 "/api/events" => ApiEvents(req),
                 "/api/script" => ApiScript(req),
+                "/api/analysis/taxonomies" => ApiAnalysisTaxonomies(),
                 _ => HttpResponse.Text("Not Found", 404),
             };
         }
@@ -245,6 +268,53 @@ internal static partial class ServeCommand
     /// <summary>True if <paramref name="candidate"/> is within <paramref name="directory"/>.</summary>
     internal static bool IsInside(string directory, string candidate) =>
         candidate.StartsWith(directory, StringComparison.OrdinalIgnoreCase);
+
+    // ---- analysis (data-driven taxonomies over analysis.db; the Analysis tab) ----
+
+    private static readonly AnalysisService Analysis = new();
+
+    private static HttpResponse ApiAnalysisRefresh()
+    {
+        RefreshResponse result = Analysis.Refresh();
+        return HttpResponse.Json(JsonSerializer.Serialize(result, AnalysisApiJsonContext.Default.RefreshResponse));
+    }
+
+    private static HttpResponse ApiAnalysisTaxonomies()
+    {
+        List<TaxonomyInfoDto> taxonomies = Analysis.Taxonomies();
+        return HttpResponse.Json(JsonSerializer.Serialize(taxonomies, AnalysisApiJsonContext.Default.ListTaxonomyInfoDto));
+    }
+
+    private static HttpResponse ApiAnalysisRollup(HttpRequest req)
+    {
+        AnalysisRequest request = ParseAnalysisRequest(req.Body);
+        RollupResponse result = Analysis.Rollup(request);
+        return HttpResponse.Json(JsonSerializer.Serialize(result, AnalysisApiJsonContext.Default.RollupResponse));
+    }
+
+    private static HttpResponse ApiAnalysisEvents(HttpRequest req)
+    {
+        AnalysisRequest request = ParseAnalysisRequest(req.Body);
+        (int total, List<AuditEvent> events) = Analysis.Drill(request);
+        var page = new EventsPage { Total = total, Offset = request.Offset, Limit = request.Limit, Events = events };
+        return HttpResponse.Json(JsonSerializer.Serialize(page, AuditJsonContext.Default.EventsPage));
+    }
+
+    private static AnalysisRequest ParseAnalysisRequest(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return new AnalysisRequest();
+        }
+        try
+        {
+            return JsonSerializer.Deserialize(body, AnalysisApiJsonContext.Default.AnalysisRequest) ?? new AnalysisRequest();
+        }
+        catch
+        {
+            return new AnalysisRequest();
+        }
+    }
 
     private static HttpResponse ServeIndex()
     {

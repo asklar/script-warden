@@ -131,3 +131,82 @@ export async function saveConfig(config: WardenConfig): Promise<WardenConfig> {
     if (!r.ok) throw new Error(`status ${r.status}`);
     return r.json();
 }
+
+// ---- analysis (data-driven taxonomies over analysis.db) ----
+
+export interface TaxonomyInfo {
+    id: string;
+    name: string;
+    multiLabel: boolean;
+    labels: string[];
+}
+
+export interface RollupRow {
+    label: string;
+    count: number;
+    totalMs: number;
+}
+
+export interface RollupResponse {
+    taxonomy: string;
+    totalEvents: number;
+    matchedEvents: number;
+    rows: RollupRow[];
+}
+
+export interface RefreshResponse {
+    ingested: number;
+    total: number;
+    reclassified: boolean;
+}
+
+export interface AnalysisFilter {
+    type: "taxonomy" | "time" | "duration" | "content";
+    taxonomy?: string;
+    op?: "include" | "exclude";
+    labels?: string[];
+    sinceMs?: number;
+    untilMs?: number;
+    minDurationMs?: number;
+    query?: string;
+}
+
+export interface AnalysisRequest {
+    groupBy: string;
+    filters: AnalysisFilter[];
+    drillLabel?: string;
+    offset?: number;
+    limit?: number;
+}
+
+export async function refreshAnalysis(): Promise<RefreshResponse> {
+    const r = await fetch("/api/analysis/refresh", { method: "POST" });
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
+}
+
+export async function getTaxonomies(): Promise<TaxonomyInfo[]> {
+    const r = await fetch("/api/analysis/taxonomies");
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
+}
+
+export async function getRollup(request: AnalysisRequest): Promise<RollupResponse> {
+    const r = await fetch("/api/analysis/rollup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
+}
+
+export async function getAnalysisEvents(request: AnalysisRequest): Promise<EventsPage> {
+    const r = await fetch("/api/analysis/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(request),
+    });
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
+}

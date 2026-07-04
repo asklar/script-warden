@@ -186,6 +186,37 @@ public class ScriptExtractorTests
     }
 
     [Fact]
+    public void ContentRefs_TrampolineBareName_ResolvesToScriptFolder()
+    {
+        // The exact shape from a ConfigMgr .cmd trampoline.
+        const string cmd = "pushd %~dp0\r\n%SystemRoot%\\sysnative\\WindowsPowerShell\\v1.0\\powershell.exe -executionpolicy bypass -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -file \"CSEORegKeyInstallationScript.ps1\"\r\npopd";
+        var refs = ScriptExtractor.FindContentScriptReferences(cmd, @"C:\it");
+        Assert.Contains(refs, r => r.ResolvedPath == @"C:\it\CSEORegKeyInstallationScript.ps1");
+        // The interpreter .exe must NOT be captured as a script.
+        Assert.DoesNotContain(refs, r => r.ResolvedPath.EndsWith("powershell.exe", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData("run.ps1", @"C:\it\run.ps1")]
+    [InlineData("%~dp0run.ps1", @"C:\it\run.ps1")]
+    [InlineData(".\\run.ps1", @"C:\it\run.ps1")]
+    [InlineData("$PSScriptRoot\\run.ps1", @"C:\it\run.ps1")]
+    [InlineData("sub\\run.ps1", @"C:\it\sub\run.ps1")]
+    [InlineData(@"C:\other\run.ps1", @"C:\other\run.ps1")]
+    public void ContentRefs_ResolvePrefixesRelativeToFolder(string token, string expected)
+    {
+        var refs = ScriptExtractor.FindContentScriptReferences($"powershell -file {token}", @"C:\it");
+        Assert.Contains(refs, r => string.Equals(r.ResolvedPath, expected, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ContentRefs_QuotedPathWithSpaces_Preserved()
+    {
+        var refs = ScriptExtractor.FindContentScriptReferences("powershell -file \"C:\\Program Files\\Corp Tools\\deploy.ps1\"", @"C:\it");
+        Assert.Contains(refs, r => r.ResolvedPath == @"C:\Program Files\Corp Tools\deploy.ps1");
+    }
+
+    [Fact]
     public void Heuristic_ForwardSlashPath_IsCaptured()
     {
         var results = ScriptExtractor.Extract("powershell.exe", ["-Command", "& 'C:/it/x.ps1'"], @"C:\w");

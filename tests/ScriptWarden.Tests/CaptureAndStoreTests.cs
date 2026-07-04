@@ -46,6 +46,37 @@ public sealed class CaptureAndStoreTests : IDisposable
     }
 
     [Fact]
+    public void Capture_CmdTrampoline_AlsoCapturesReferencedPs1()
+    {
+        // A .cmd that launches its .ps1 equivalent by bare filename in the same folder.
+        string cmdPath = Path.Combine(_work, "install.cmd");
+        string ps1Path = Path.Combine(_work, "CSEORegKeyInstallationScript.ps1");
+        File.WriteAllText(cmdPath, "pushd %~dp0\r\npowershell.exe -NoProfile -File \"CSEORegKeyInstallationScript.ps1\"\r\npopd");
+        File.WriteAllText(ps1Path, "Write-Host 'the real payload'");
+
+        var captured = Capturer.Capture(_root, "cmd.exe", ["/c", cmdPath], _work);
+
+        // Both the trampoline and the referenced script are captured.
+        Assert.Contains(captured, c => c.OriginalPath == cmdPath);
+        Assert.Contains(captured, c => c.OriginalPath == "CSEORegKeyInstallationScript.ps1" && c.Extension == ".ps1");
+        var ps1 = captured.First(c => c.Extension == ".ps1");
+        Assert.Equal("Write-Host 'the real payload'", ReadStored(ps1));
+    }
+
+    [Fact]
+    public void Capture_Trampoline_DoesNotCaptureMissingReference()
+    {
+        string cmdPath = Path.Combine(_work, "t.cmd");
+        File.WriteAllText(cmdPath, "powershell -File \"does-not-exist.ps1\"");
+        var captured = Capturer.Capture(_root, "cmd.exe", ["/c", cmdPath], _work);
+        // Only the cmd itself; the non-existent bare reference is not captured (avoids noise).
+        Assert.DoesNotContain(captured, c => c.OriginalPath == "does-not-exist.ps1");
+    }
+
+    private string ReadStored(CapturedScript cs) =>
+        File.ReadAllText(new ScriptStore(_root).ScriptPath(cs.Sha256, cs.Extension));
+
+    [Fact]
     public void Capture_InlineCommand_StoresText()
     {
         var captured = Capturer.Capture(_root, "cmd.exe", ["/c", "echo", "hi"], _work);

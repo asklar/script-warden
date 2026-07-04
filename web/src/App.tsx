@@ -58,6 +58,8 @@ import {
     PersonRegular,
     WindowConsoleRegular,
     ChevronRightRegular,
+    SearchRegular,
+    DataBarHorizontalRegular,
 } from "@fluentui/react-icons";
 import {
     AuditEvent,
@@ -72,7 +74,15 @@ import {
     getStatus,
     saveConfig,
     scriptUrl,
+    TaxonomyInfo,
+    RollupResponse,
+    AnalysisFilter,
+    getTaxonomies,
+    getRollup,
+    refreshAnalysis,
+    getAnalysisEvents,
 } from "./api";
+import { highlightScript } from "./highlight";
 
 const useStyles = makeStyles({
     root: { maxWidth: "1200px", margin: "0 auto", padding: "24px", display: "flex", flexDirection: "column", gap: "12px" },
@@ -115,6 +125,17 @@ const useStyles = makeStyles({
     url: { fontFamily: tokens.fontFamilyMonospace, fontSize: tokens.fontSizeBase200, wordBreak: "break-all" },
     mono: { fontFamily: tokens.fontFamilyMonospace, whiteSpace: "pre-wrap", wordBreak: "break-all", background: tokens.colorNeutralBackground3, padding: "8px", borderRadius: tokens.borderRadiusMedium, margin: 0 },
     scriptView: { fontFamily: tokens.fontFamilyMonospace, fontSize: tokens.fontSizeBase200, whiteSpace: "pre-wrap", wordBreak: "break-word", background: tokens.colorNeutralBackground3, padding: "12px", borderRadius: tokens.borderRadiusMedium, maxHeight: "320px", overflow: "auto", margin: 0 },
+    highlight: {
+        "& .hljs-comment, & .hljs-quote": { color: tokens.colorNeutralForeground4, fontStyle: "italic" },
+        "& .hljs-keyword, & .hljs-selector-tag, & .hljs-literal, & .hljs-doctag": { color: tokens.colorPaletteBlueForeground2 },
+        "& .hljs-built_in, & .hljs-type, & .hljs-class .hljs-title": { color: tokens.colorPalettePurpleForeground2 },
+        "& .hljs-string, & .hljs-attr, & .hljs-symbol, & .hljs-meta .hljs-string": { color: tokens.colorPaletteGreenForeground2 },
+        "& .hljs-number": { color: tokens.colorPaletteBerryForeground2 },
+        "& .hljs-variable, & .hljs-template-variable": { color: tokens.colorPaletteMarigoldForeground2 },
+        "& .hljs-title, & .hljs-section, & .hljs-name, & .hljs-tag": { color: tokens.colorBrandForeground1 },
+        "& .hljs-attribute": { color: tokens.colorPaletteMarigoldForeground2 },
+        "& .hljs-meta": { color: tokens.colorNeutralForeground3 },
+    },
     fieldGrid: { display: "grid", gridTemplateColumns: "140px 1fr", rowGap: "4px", columnGap: "12px", alignItems: "start" },
     label: { color: tokens.colorNeutralForeground3 },
     scriptCard: { border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusMedium, padding: "12px", marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" },
@@ -123,6 +144,14 @@ const useStyles = makeStyles({
     section: { display: "flex", flexDirection: "column", gap: "8px" },
     tagRow: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" },
     addRow: { display: "flex", gap: "8px", alignItems: "center" },
+    analysis: { display: "flex", flexDirection: "column", gap: "16px" },
+    analysisBar: { display: "flex", alignItems: "flex-end", gap: "12px", flexWrap: "wrap" },
+    rollupRow: { display: "grid", gridTemplateColumns: "220px 1fr 130px", alignItems: "center", gap: "12px", cursor: "pointer", padding: "4px 6px", borderRadius: tokens.borderRadiusMedium, ":hover": { backgroundColor: tokens.colorNeutralBackground1Hover } },
+    rollupLabel: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+    rollupTrack: { position: "relative", height: "20px", background: tokens.colorNeutralBackground3, borderRadius: tokens.borderRadiusMedium, overflow: "hidden" },
+    rollupFill: { position: "absolute", top: 0, left: 0, bottom: 0, background: tokens.colorBrandBackground, borderRadius: tokens.borderRadiusMedium },
+    rollupMeta: { textAlign: "right", color: tokens.colorNeutralForeground3, fontVariantNumeric: "tabular-nums" },
+    empty: { padding: "24px", textAlign: "center", color: tokens.colorNeutralForeground3 },
 });
 
 const ALL = "all";
@@ -169,6 +198,15 @@ function windowLabel(w: string): string {
     return w || "Unknown";
 }
 
+function timeLabel(preset: string): string {
+    switch (preset) {
+        case "24h": return "Last 24 hours";
+        case "7d": return "Last 7 days";
+        case "30d": return "Last 30 days";
+        default: return "All time";
+    }
+}
+
 function windowIcon(w: string) {
     return w === "NoWindow" ? <EyeOffRegular /> : <EyeRegular />;
 }
@@ -181,9 +219,19 @@ function originIcon(o: string) {
 // left-to-right (each arrow means "started"). The final, emphasized node is this launch itself.
 function LaunchChain({ event }: { event: AuditEvent }) {
     const styles = useStyles();
-    const parents = [...(event.ancestors ?? [])]
+    let parents = [...(event.ancestors ?? [])]
         .reverse()
         .map((a) => ({ name: a.name || "?", pid: a.pid, title: `${a.path || a.name || "?"} (pid ${a.pid})`, self: false }));
+    // Older events (recorded before ancestor-chain capture) have no chain — fall back to the
+    // immediate parent so we still show "parent → target" rather than a lone target.
+    if (parents.length === 0 && event.parentProcessName) {
+        parents = [{
+            name: event.parentProcessName,
+            pid: event.parentProcessId,
+            title: `${event.parentProcessPath || event.parentProcessName} (pid ${event.parentProcessId})`,
+            self: false,
+        }];
+    }
     const nodes = [
         ...parents,
         { name: event.hookedImage, pid: event.childProcessId, title: `${event.targetPath} (pid ${event.childProcessId})`, self: true },
@@ -342,6 +390,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
 
             <TabList selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as string)}>
                 <Tab value="audit">Audit</Tab>
+                <Tab value="analysis">Analysis</Tab>
                 <Tab value="settings">Settings</Tab>
             </TabList>
 
@@ -431,6 +480,8 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                         </Table>
                     )}
                 </>
+            ) : tab === "analysis" ? (
+                <AnalysisView onSelect={setSelected} onError={setError} />
             ) : (
                 <SettingsView onError={setError} />
             )}
@@ -560,6 +611,182 @@ function ExclusionList({ title, hint, placeholder, values, onChange }: { title: 
     );
 }
 
+function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void; onError: (e: string) => void }) {
+    const styles = useStyles();
+    const [taxonomies, setTaxonomies] = useState<TaxonomyInfo[]>([]);
+    const [taxonomy, setTaxonomy] = useState("source");
+    const [rollup, setRollup] = useState<RollupResponse | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [mentions, setMentions] = useState("");
+    const [debouncedMentions, setDebouncedMentions] = useState("");
+    const [timePreset, setTimePreset] = useState("all");
+    const [selected, setSelected] = useState<Record<string, string[]>>({});
+    const [matched, setMatched] = useState(0);
+    const [detail, setDetail] = useState<{ title: string; events: AuditEvent[] } | null>(null);
+
+    const fail = (e: unknown) => onError(e instanceof Error ? e.message : String(e));
+
+    useEffect(() => {
+        getTaxonomies().then((t) => {
+            setTaxonomies(t);
+            if (t.length > 0 && !t.some((x) => x.id === taxonomy)) setTaxonomy(t[0].id);
+        }).catch(fail);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    function buildFilters(): AnalysisFilter[] {
+        const filters: AnalysisFilter[] = [];
+        for (const t of taxonomies) {
+            if (t.id === taxonomy) continue;
+            const labels = selected[t.id];
+            if (labels && labels.length > 0) filters.push({ type: "taxonomy", taxonomy: t.id, op: "include", labels });
+        }
+        const presetMs: Record<string, number> = { "24h": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000 };
+        if (timePreset in presetMs) filters.push({ type: "time", sinceMs: Date.now() - presetMs[timePreset] });
+        const q = debouncedMentions.trim();
+        if (q) filters.push({ type: "content", query: q });
+        return filters;
+    }
+
+    async function loadRollup() {
+        setLoading(true);
+        try {
+            const res = await getRollup({ groupBy: taxonomy, filters: buildFilters() });
+            setRollup(res);
+            setMatched(res.matchedEvents);
+            setDetail(null);
+        } catch (e) { fail(e); } finally { setLoading(false); }
+    }
+    const loadRef = useRef(loadRollup);
+    loadRef.current = loadRollup;
+
+    useEffect(() => { const id = setTimeout(() => setDebouncedMentions(mentions), 300); return () => clearTimeout(id); }, [mentions]);
+
+    useEffect(() => {
+        void loadRef.current();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [taxonomy, selected, timePreset, debouncedMentions]);
+
+    async function doRefresh() {
+        setRefreshing(true);
+        try {
+            await refreshAnalysis();
+            setTaxonomies(await getTaxonomies());
+            await loadRef.current();
+        } catch (e) { fail(e); } finally { setRefreshing(false); }
+    }
+
+    async function drill(label: string) {
+        try {
+            const page = await getAnalysisEvents({ groupBy: taxonomy, drillLabel: label, filters: buildFilters(), limit: 200 });
+            setDetail({ title: `${label} — ${page.total} event(s)`, events: page.events });
+        } catch (e) { fail(e); }
+    }
+
+    const total = rollup?.totalEvents ?? 0;
+    const maxCount = rollup && rollup.rows.length > 0 ? Math.max(...rollup.rows.map((r) => r.count)) : 0;
+
+    return (
+        <div className={styles.analysis}>
+            <div className={styles.analysisBar}>
+                <FilterDropdown
+                    label="Group by"
+                    value={taxonomy}
+                    options={taxonomies.map((t) => t.id)}
+                    onChange={setTaxonomy}
+                    format={(id) => taxonomies.find((t) => t.id === id)?.name ?? id}
+                />
+                <div>
+                    <Caption1 block>Time range</Caption1>
+                    <Dropdown value={timeLabel(timePreset)} selectedOptions={[timePreset]} onOptionSelect={(_, d) => setTimePreset(d.optionValue ?? "all")}>
+                        <Option value="all">All time</Option>
+                        <Option value="24h">Last 24 hours</Option>
+                        <Option value="7d">Last 7 days</Option>
+                        <Option value="30d">Last 30 days</Option>
+                    </Dropdown>
+                </div>
+                <div className={styles.search}>
+                    <Caption1 block>Script mentions</Caption1>
+                    <Input placeholder="e.g. outlook.exe" value={mentions} onChange={(_, d) => setMentions(d.value)} contentBefore={<SearchRegular />} />
+                </div>
+                {taxonomies.filter((t) => t.id !== taxonomy).map((t) => (
+                    <div key={t.id}>
+                        <Caption1 block>{t.name}</Caption1>
+                        <Dropdown
+                            multiselect
+                            placeholder="any"
+                            value={selected[t.id]?.length ? `${selected[t.id].length} selected` : ""}
+                            selectedOptions={selected[t.id] ?? []}
+                            onOptionSelect={(_, d) => setSelected((s) => ({ ...s, [t.id]: d.selectedOptions }))}
+                        >
+                            {t.labels.map((l) => (<Option key={l} value={l}>{l}</Option>))}
+                        </Dropdown>
+                    </div>
+                ))}
+                <div className={styles.grow} />
+                <Button icon={<ArrowClockwiseRegular />} appearance="primary" disabled={refreshing} onClick={() => void doRefresh()}>
+                    {refreshing ? "Analyzing…" : "Refresh analysis"}
+                </Button>
+            </div>
+
+            <Caption1>
+                {matched.toLocaleString()} of {total.toLocaleString()} events match. Click a group to see its events; “Refresh analysis” ingests anything new since last time.
+            </Caption1>
+
+            {loading ? (
+                <Spinner label="Loading analysis…" />
+            ) : rollup && rollup.rows.length > 0 ? (
+                <div>
+                    {rollup.rows.map((r) => (
+                        <div key={r.label} className={styles.rollupRow} onClick={() => void drill(r.label)}>
+                            <Text className={styles.rollupLabel} title={r.label}>{r.label}</Text>
+                            <div className={styles.rollupTrack}>
+                                <div className={styles.rollupFill} style={{ width: `${maxCount ? Math.max(2, (100 * r.count) / maxCount) : 0}%` }} />
+                            </div>
+                            <div className={styles.rollupMeta}>{r.count} · {fmtDuration(r.totalMs)} · {matched ? Math.round((100 * r.count) / matched) : 0}%</div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className={styles.empty}>
+                    <DataBarHorizontalRegular style={{ fontSize: "28px" }} />
+                    <div>No analysis yet. Click <b>Refresh analysis</b> to ingest and label your events.</div>
+                </div>
+            )}
+
+            {detail && (
+                <>
+                    <Divider />
+                    <Subtitle2>{detail.title}</Subtitle2>
+                    <Table size="small" aria-label="Events">
+                        <TableHeader>
+                            <TableRow>
+                                <TableHeaderCell>Time (UTC)</TableHeaderCell>
+                                <TableHeaderCell>Interpreter</TableHeaderCell>
+                                <TableHeaderCell>Parent</TableHeaderCell>
+                                <TableHeaderCell>Scripts</TableHeaderCell>
+                                <TableHeaderCell>Duration</TableHeaderCell>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {detail.events.map((e) => (
+                                <TableRow key={e.eventId} className={styles.row} onClick={() => onSelect(e)}>
+                                    <TableCell>{fmtTime(e.timestampUtc)}</TableCell>
+                                    <TableCell><TableCellLayout media={<WindowConsoleRegular className={styles.interpreterIcon} />}>{e.hookedImage}</TableCellLayout></TableCell>
+                                    <TableCell><span className={styles.cellText} title={e.parentProcessName}>{e.parentProcessName}</span></TableCell>
+                                    <TableCell>{e.scripts.length > 0 ? <Badge appearance="filled" color="brand">{e.scripts.length}</Badge> : <Caption1>—</Caption1>}</TableCell>
+                                    <TableCell>{fmtDuration(e.durationMs)}</TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </>
+            )}
+        </div>
+    );
+}
+
 function EventDialog({ event, onClose }: { event: AuditEvent | null; onClose: () => void }) {
     const styles = useStyles();
     return (
@@ -660,7 +887,11 @@ function ScriptCard({ script, origin }: { script: CapturedScript; origin: string
             {!hasContent && <Caption1>No content stored (see note above).</Caption1>}
             {loading && <Spinner size="tiny" label="Loading…" />}
             {err && <Caption1>Error: {err}</Caption1>}
-            {content !== null && <pre className={styles.scriptView}>{content}</pre>}
+            {content !== null && (
+                <pre className={mergeClasses(styles.scriptView, styles.highlight)}>
+                    <code dangerouslySetInnerHTML={{ __html: highlightScript(content, script.language) }} />
+                </pre>
+            )}
         </div>
     );
 }
