@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ScriptWarden.Analysis;
 using ScriptWarden.Core;
 
 namespace ScriptWarden.Web;
@@ -73,12 +74,23 @@ internal static partial class ServeCommand
                     : ApiGetConfig();
             }
 
+            if (req.Path == "/api/analysis/refresh")
+            {
+                return string.Equals(req.Method, "POST", StringComparison.OrdinalIgnoreCase)
+                    ? ApiAnalysisRefresh()
+                    : HttpResponse.Text("Method Not Allowed", 405);
+            }
+
             return req.Path switch
             {
                 "/" or "/index.html" => ServeIndex(),
                 "/api/status" => ApiStatus(),
                 "/api/events" => ApiEvents(req),
                 "/api/script" => ApiScript(req),
+                "/api/analysis/taxonomies" => ApiAnalysisTaxonomies(),
+                "/api/analysis/rollup" => ApiAnalysisRollup(req),
+                "/api/analysis/events" => ApiAnalysisEvents(req),
+                "/api/analysis/search" => ApiAnalysisSearch(req),
                 _ => HttpResponse.Text("Not Found", 404),
             };
         }
@@ -245,6 +257,56 @@ internal static partial class ServeCommand
     /// <summary>True if <paramref name="candidate"/> is within <paramref name="directory"/>.</summary>
     internal static bool IsInside(string directory, string candidate) =>
         candidate.StartsWith(directory, StringComparison.OrdinalIgnoreCase);
+
+    // ---- analysis (data-driven taxonomies over analysis.db; the Analysis tab) ----
+
+    private static readonly AnalysisService Analysis = new();
+
+    private static HttpResponse ApiAnalysisRefresh()
+    {
+        RefreshResponse result = Analysis.Refresh();
+        return HttpResponse.Json(JsonSerializer.Serialize(result, AnalysisApiJsonContext.Default.RefreshResponse));
+    }
+
+    private static HttpResponse ApiAnalysisTaxonomies()
+    {
+        List<TaxonomyInfoDto> taxonomies = Analysis.Taxonomies();
+        return HttpResponse.Json(JsonSerializer.Serialize(taxonomies, AnalysisApiJsonContext.Default.ListTaxonomyInfoDto));
+    }
+
+    private static HttpResponse ApiAnalysisRollup(HttpRequest req)
+    {
+        string taxonomy = req.Query.GetValueOrDefault("taxonomy", "source");
+        string? ft = req.Query.GetValueOrDefault("filterTaxonomy");
+        string? fl = req.Query.GetValueOrDefault("filterLabel");
+        RollupResponse result = Analysis.Rollup(taxonomy, ft, fl);
+        return HttpResponse.Json(JsonSerializer.Serialize(result, AnalysisApiJsonContext.Default.RollupResponse));
+    }
+
+    private static HttpResponse ApiAnalysisEvents(HttpRequest req)
+    {
+        string taxonomy = req.Query.GetValueOrDefault("taxonomy", "");
+        string label = req.Query.GetValueOrDefault("label", "");
+        int offset = ParseInt(req.Query.GetValueOrDefault("offset"), 0);
+        int limit = Math.Clamp(ParseInt(req.Query.GetValueOrDefault("limit"), 100), 1, 500);
+        (int total, List<AuditEvent> events) = Analysis.Drill(taxonomy, label, offset, limit);
+        var page = new EventsPage { Total = total, Offset = offset, Limit = limit, Events = events };
+        return HttpResponse.Json(JsonSerializer.Serialize(page, AuditJsonContext.Default.EventsPage));
+    }
+
+    private static HttpResponse ApiAnalysisSearch(HttpRequest req)
+    {
+        string q = req.Query.GetValueOrDefault("q", "");
+        int offset = ParseInt(req.Query.GetValueOrDefault("offset"), 0);
+        int limit = Math.Clamp(ParseInt(req.Query.GetValueOrDefault("limit"), 100), 1, 500);
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            return HttpResponse.Json(JsonSerializer.Serialize(new EventsPage { Offset = offset, Limit = limit }, AuditJsonContext.Default.EventsPage));
+        }
+        (int total, List<AuditEvent> events) = Analysis.Search(q, offset, limit);
+        var page = new EventsPage { Total = total, Offset = offset, Limit = limit, Events = events };
+        return HttpResponse.Json(JsonSerializer.Serialize(page, AuditJsonContext.Default.EventsPage));
+    }
 
     private static HttpResponse ServeIndex()
     {

@@ -40,6 +40,12 @@ internal static class Help
                 --since DATE     Only events at/after this UTC time (e.g. 2026-01-01).
               clear              Delete all captured data (events + scripts).
                 --yes            Skip the confirmation prompt.
+              analyze            Analyze what's been running: group launches by source (who
+                                 started them), behavior, or your own taxonomies.
+                --group-by ID    Taxonomy to group by (default: source).
+                --search TEXT    Find events whose captured script mentions TEXT.
+                --taxonomies     List available taxonomies (editable JSON under the data root).
+                --json           Emit JSON.
               config             Show or edit configuration (exclusions).
                 --enable         Resume recording.
                 --disable        Pause recording (scripts still run, nothing is captured).

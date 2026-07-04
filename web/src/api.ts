@@ -131,3 +131,66 @@ export async function saveConfig(config: WardenConfig): Promise<WardenConfig> {
     if (!r.ok) throw new Error(`status ${r.status}`);
     return r.json();
 }
+
+// ---- analysis (data-driven taxonomies over analysis.db) ----
+
+export interface TaxonomyInfo {
+    id: string;
+    name: string;
+    multiLabel: boolean;
+}
+
+export interface RollupRow {
+    label: string;
+    count: number;
+    totalMs: number;
+}
+
+export interface RollupResponse {
+    taxonomy: string;
+    totalEvents: number;
+    rows: RollupRow[];
+}
+
+export interface RefreshResponse {
+    ingested: number;
+    total: number;
+    reclassified: boolean;
+}
+
+export async function refreshAnalysis(): Promise<RefreshResponse> {
+    const r = await fetch("/api/analysis/refresh", { method: "POST" });
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
+}
+
+export async function getTaxonomies(): Promise<TaxonomyInfo[]> {
+    const r = await fetch("/api/analysis/taxonomies");
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
+}
+
+export async function getRollup(taxonomy: string, filterTaxonomy?: string, filterLabel?: string): Promise<RollupResponse> {
+    const params = new URLSearchParams({ taxonomy });
+    if (filterTaxonomy && filterLabel) {
+        params.set("filterTaxonomy", filterTaxonomy);
+        params.set("filterLabel", filterLabel);
+    }
+    const r = await fetch(`/api/analysis/rollup?${params.toString()}`);
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
+}
+
+export async function getAnalysisEvents(taxonomy: string, label: string, offset = 0, limit = 100): Promise<EventsPage> {
+    const params = new URLSearchParams({ taxonomy, label, offset: String(offset), limit: String(limit) });
+    const r = await fetch(`/api/analysis/events?${params.toString()}`);
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
+}
+
+export async function searchScripts(q: string, offset = 0, limit = 100): Promise<EventsPage> {
+    const params = new URLSearchParams({ q, offset: String(offset), limit: String(limit) });
+    const r = await fetch(`/api/analysis/search?${params.toString()}`);
+    if (!r.ok) throw new Error(`status ${r.status}`);
+    return r.json();
+}

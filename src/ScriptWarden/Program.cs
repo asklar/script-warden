@@ -33,6 +33,9 @@ try
         case "clear":
             return ClearCommand.Run(args);
 
+        case "analyze":
+            return AnalyzeCommand.Run(args);
+
         case "config":
             return ConfigCommand.Run(args);
 

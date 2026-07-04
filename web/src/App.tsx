@@ -58,6 +58,8 @@ import {
     PersonRegular,
     WindowConsoleRegular,
     ChevronRightRegular,
+    SearchRegular,
+    DataBarHorizontalRegular,
 } from "@fluentui/react-icons";
 import {
     AuditEvent,
@@ -72,6 +74,13 @@ import {
     getStatus,
     saveConfig,
     scriptUrl,
+    TaxonomyInfo,
+    RollupResponse,
+    getTaxonomies,
+    getRollup,
+    refreshAnalysis,
+    getAnalysisEvents,
+    searchScripts,
 } from "./api";
 
 const useStyles = makeStyles({
@@ -123,6 +132,14 @@ const useStyles = makeStyles({
     section: { display: "flex", flexDirection: "column", gap: "8px" },
     tagRow: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" },
     addRow: { display: "flex", gap: "8px", alignItems: "center" },
+    analysis: { display: "flex", flexDirection: "column", gap: "16px" },
+    analysisBar: { display: "flex", alignItems: "flex-end", gap: "12px", flexWrap: "wrap" },
+    rollupRow: { display: "grid", gridTemplateColumns: "220px 1fr 130px", alignItems: "center", gap: "12px", cursor: "pointer", padding: "4px 6px", borderRadius: tokens.borderRadiusMedium, ":hover": { backgroundColor: tokens.colorNeutralBackground1Hover } },
+    rollupLabel: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+    rollupTrack: { position: "relative", height: "20px", background: tokens.colorNeutralBackground3, borderRadius: tokens.borderRadiusMedium, overflow: "hidden" },
+    rollupFill: { position: "absolute", top: 0, left: 0, bottom: 0, background: tokens.colorBrandBackground, borderRadius: tokens.borderRadiusMedium },
+    rollupMeta: { textAlign: "right", color: tokens.colorNeutralForeground3, fontVariantNumeric: "tabular-nums" },
+    empty: { padding: "24px", textAlign: "center", color: tokens.colorNeutralForeground3 },
 });
 
 const ALL = "all";
@@ -342,6 +359,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
 
             <TabList selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as string)}>
                 <Tab value="audit">Audit</Tab>
+                <Tab value="analysis">Analysis</Tab>
                 <Tab value="settings">Settings</Tab>
             </TabList>
 
@@ -431,6 +449,8 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                         </Table>
                     )}
                 </>
+            ) : tab === "analysis" ? (
+                <AnalysisView onSelect={setSelected} onError={setError} />
             ) : (
                 <SettingsView onError={setError} />
             )}
@@ -556,6 +576,143 @@ function ExclusionList({ title, hint, placeholder, values, onChange }: { title: 
                 <Input value={draft} placeholder={placeholder} onChange={(_, d) => setDraft(d.value)} onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
                 <Button icon={<AddRegular />} onClick={add}>Add</Button>
             </div>
+        </div>
+    );
+}
+
+function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void; onError: (e: string) => void }) {
+    const styles = useStyles();
+    const [taxonomies, setTaxonomies] = useState<TaxonomyInfo[]>([]);
+    const [taxonomy, setTaxonomy] = useState("source");
+    const [rollup, setRollup] = useState<RollupResponse | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [query, setQuery] = useState("");
+    const [detail, setDetail] = useState<{ title: string; events: AuditEvent[] } | null>(null);
+
+    const fail = (e: unknown) => onError(e instanceof Error ? e.message : String(e));
+
+    useEffect(() => {
+        getTaxonomies().then((t) => {
+            setTaxonomies(t);
+            if (t.length > 0 && !t.some((x) => x.id === taxonomy)) setTaxonomy(t[0].id);
+        }).catch(fail);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    async function loadRollup(tax: string) {
+        setLoading(true);
+        try {
+            setRollup(await getRollup(tax));
+            setDetail(null);
+        } catch (e) { fail(e); } finally { setLoading(false); }
+    }
+
+    useEffect(() => { void loadRollup(taxonomy); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [taxonomy]);
+
+    async function doRefresh() {
+        setRefreshing(true);
+        try {
+            await refreshAnalysis();
+            setTaxonomies(await getTaxonomies());
+            await loadRollup(taxonomy);
+        } catch (e) { fail(e); } finally { setRefreshing(false); }
+    }
+
+    async function drill(label: string) {
+        try {
+            const page = await getAnalysisEvents(taxonomy, label, 0, 200);
+            setDetail({ title: `${label} — ${page.total} event(s)`, events: page.events });
+        } catch (e) { fail(e); }
+    }
+
+    async function doSearch() {
+        const q = query.trim();
+        if (!q) { setDetail(null); return; }
+        try {
+            const page = await searchScripts(q, 0, 200);
+            setDetail({ title: `Scripts mentioning “${q}” — ${page.total} event(s)`, events: page.events });
+        } catch (e) { fail(e); }
+    }
+
+    const total = rollup?.totalEvents ?? 0;
+    const maxCount = rollup && rollup.rows.length > 0 ? Math.max(...rollup.rows.map((r) => r.count)) : 0;
+
+    return (
+        <div className={styles.analysis}>
+            <div className={styles.analysisBar}>
+                <FilterDropdown
+                    label="Group by"
+                    value={taxonomy}
+                    options={taxonomies.map((t) => t.id)}
+                    onChange={setTaxonomy}
+                    format={(id) => taxonomies.find((t) => t.id === id)?.name ?? id}
+                />
+                <Button icon={<ArrowClockwiseRegular />} appearance="primary" disabled={refreshing} onClick={() => void doRefresh()}>
+                    {refreshing ? "Analyzing…" : "Refresh analysis"}
+                </Button>
+                <div className={styles.grow} />
+                <div className={styles.search}>
+                    <Input placeholder="Find scripts that mention… (e.g. outlook.exe)" value={query}
+                        onChange={(_, d) => setQuery(d.value)} onKeyDown={(e) => { if (e.key === "Enter") void doSearch(); }}
+                        contentBefore={<SearchRegular />} />
+                </div>
+                <Button icon={<SearchRegular />} onClick={() => void doSearch()}>Search</Button>
+            </div>
+
+            <Caption1>
+                {total} event(s) analyzed. Click a group to see its events; “Refresh analysis” ingests anything new since last time.
+            </Caption1>
+
+            {loading ? (
+                <Spinner label="Loading analysis…" />
+            ) : rollup && rollup.rows.length > 0 ? (
+                <div>
+                    {rollup.rows.map((r) => (
+                        <div key={r.label} className={styles.rollupRow} onClick={() => void drill(r.label)}>
+                            <Text className={styles.rollupLabel} title={r.label}>{r.label}</Text>
+                            <div className={styles.rollupTrack}>
+                                <div className={styles.rollupFill} style={{ width: `${maxCount ? Math.max(2, (100 * r.count) / maxCount) : 0}%` }} />
+                            </div>
+                            <div className={styles.rollupMeta}>{r.count} · {fmtDuration(r.totalMs)} · {total ? Math.round((100 * r.count) / total) : 0}%</div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className={styles.empty}>
+                    <DataBarHorizontalRegular style={{ fontSize: "28px" }} />
+                    <div>No analysis yet. Click <b>Refresh analysis</b> to ingest and label your events.</div>
+                </div>
+            )}
+
+            {detail && (
+                <>
+                    <Divider />
+                    <Subtitle2>{detail.title}</Subtitle2>
+                    <Table size="small" aria-label="Events">
+                        <TableHeader>
+                            <TableRow>
+                                <TableHeaderCell>Time (UTC)</TableHeaderCell>
+                                <TableHeaderCell>Interpreter</TableHeaderCell>
+                                <TableHeaderCell>Parent</TableHeaderCell>
+                                <TableHeaderCell>Scripts</TableHeaderCell>
+                                <TableHeaderCell>Duration</TableHeaderCell>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {detail.events.map((e) => (
+                                <TableRow key={e.eventId} className={styles.row} onClick={() => onSelect(e)}>
+                                    <TableCell>{fmtTime(e.timestampUtc)}</TableCell>
+                                    <TableCell><TableCellLayout media={<WindowConsoleRegular className={styles.interpreterIcon} />}>{e.hookedImage}</TableCellLayout></TableCell>
+                                    <TableCell><span className={styles.cellText} title={e.parentProcessName}>{e.parentProcessName}</span></TableCell>
+                                    <TableCell>{e.scripts.length > 0 ? <Badge appearance="filled" color="brand">{e.scripts.length}</Badge> : <Caption1>—</Caption1>}</TableCell>
+                                    <TableCell>{fmtDuration(e.durationMs)}</TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </>
+            )}
         </div>
     );
 }
