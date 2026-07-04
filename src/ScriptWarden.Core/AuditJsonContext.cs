@@ -15,6 +15,7 @@ namespace ScriptWarden.Core;
 [JsonSerializable(typeof(CapturedScript))]
 [JsonSerializable(typeof(ProcessRef))]
 [JsonSerializable(typeof(List<ProcessRef>))]
+[JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(List<AuditEvent>))]
 [JsonSerializable(typeof(List<CapturedScript>))]
 [JsonSerializable(typeof(WardenConfig))]

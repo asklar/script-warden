@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
     makeStyles,
+    mergeClasses,
     tokens,
     Title2,
     Subtitle2,
@@ -86,9 +87,32 @@ const useStyles = makeStyles({
     clickable: { cursor: "pointer" },
     row: { cursor: "pointer", ":hover": { backgroundColor: tokens.colorNeutralBackground1Hover } },
     interpreterIcon: { color: tokens.colorNeutralForeground3 },
-    chain: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px", rowGap: "6px" },
-    chainNode: { display: "inline-flex", alignItems: "center" },
-    chainArrow: { color: tokens.colorNeutralForeground4, fontSize: "14px", margin: "0 2px", flexShrink: 0 },
+    cellText: { display: "block", maxWidth: "220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+    chain: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px", rowGap: "6px", minWidth: 0 },
+    chainNode: { display: "inline-flex", alignItems: "center", gap: "4px", minWidth: 0, maxWidth: "100%" },
+    chainChip: {
+        display: "inline-block",
+        maxWidth: "240px",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        verticalAlign: "middle",
+        padding: "1px 8px",
+        borderRadius: tokens.borderRadiusCircular,
+        border: `1px solid ${tokens.colorNeutralStroke2}`,
+        background: tokens.colorNeutralBackground3,
+        fontSize: tokens.fontSizeBase200,
+        lineHeight: tokens.lineHeightBase300,
+    },
+    chainChipSelf: {
+        background: tokens.colorBrandBackground,
+        color: tokens.colorNeutralForegroundOnBrand,
+        border: "1px solid transparent",
+        fontWeight: tokens.fontWeightSemibold,
+    },
+    chainArrow: { color: tokens.colorNeutralForeground4, fontSize: "14px", flexShrink: 0 },
+    urlList: { display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 },
+    url: { fontFamily: tokens.fontFamilyMonospace, fontSize: tokens.fontSizeBase200, wordBreak: "break-all" },
     mono: { fontFamily: tokens.fontFamilyMonospace, whiteSpace: "pre-wrap", wordBreak: "break-all", background: tokens.colorNeutralBackground3, padding: "8px", borderRadius: tokens.borderRadiusMedium, margin: 0 },
     scriptView: { fontFamily: tokens.fontFamilyMonospace, fontSize: tokens.fontSizeBase200, whiteSpace: "pre-wrap", wordBreak: "break-word", background: tokens.colorNeutralBackground3, padding: "12px", borderRadius: tokens.borderRadiusMedium, maxHeight: "320px", overflow: "auto", margin: 0 },
     fieldGrid: { display: "grid", gridTemplateColumns: "140px 1fr", rowGap: "4px", columnGap: "12px", alignItems: "start" },
@@ -168,7 +192,7 @@ function LaunchChain({ event }: { event: AuditEvent }) {
         <div className={styles.chain}>
             {nodes.map((n, i) => (
                 <span key={i} className={styles.chainNode} title={n.title}>
-                    <Badge appearance={n.self ? "filled" : "outline"} color={n.self ? "brand" : "informative"}>{n.name}</Badge>
+                    <span className={mergeClasses(styles.chainChip, n.self && styles.chainChipSelf)}>{n.name}</span>
                     {i < nodes.length - 1 && <ChevronRightRegular className={styles.chainArrow} />}
                 </span>
             ))}
@@ -390,8 +414,8 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                                         <TableCell><TableCellLayout media={<WindowConsoleRegular className={styles.interpreterIcon} />}>{e.hookedImage}</TableCellLayout></TableCell>
                                         <TableCell><Badge appearance="tint" color={e.origin === "System" ? "danger" : "informative"} icon={originIcon(e.origin)}>{e.origin}</Badge></TableCell>
                                         <TableCell><Badge appearance="tint" color={windowColor(e.window)} icon={windowIcon(e.window)}>{windowLabel(e.window)}</Badge></TableCell>
-                                        <TableCell>{e.user}</TableCell>
-                                        <TableCell>{e.parentProcessName}</TableCell>
+                                        <TableCell><span className={styles.cellText} title={e.user}>{e.user}</span></TableCell>
+                                        <TableCell><span className={styles.cellText} title={e.parentProcessName}>{e.parentProcessName}</span></TableCell>
                                         <TableCell>
                                             <TableCellLayout>
                                                 {e.scripts.length > 0 ? <Badge appearance="filled" color="brand">{e.scripts.length}</Badge> : <Caption1>—</Caption1>}
@@ -560,6 +584,14 @@ function EventDialog({ event, onClose }: { event: AuditEvent | null; onClose: ()
                                 <Text>{event.parentProcessName} (pid {event.parentProcessId}){event.parentProcessPath ? ` — ${event.parentProcessPath}` : ""}</Text>
                                 <Text className={styles.label}>Launch chain</Text>
                                 <LaunchChain event={event} />
+                                {event.urls && event.urls.length > 0 && (
+                                    <>
+                                        <Text className={styles.label}>URLs referenced</Text>
+                                        <div className={styles.urlList}>
+                                            {event.urls.map((u, i) => (<Text key={i} className={styles.url}>{u}</Text>))}
+                                        </div>
+                                    </>
+                                )}
                                 <Text className={styles.label}>Working dir</Text>
                                 <Text>{event.workingDirectory}</Text>
                                 <Text className={styles.label}>Origin</Text>

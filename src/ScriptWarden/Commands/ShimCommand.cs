@@ -134,6 +134,7 @@ internal static class ShimCommand
             ParentProcessPath = parent?.Path,
             Ancestors = ancestors,
             Window = ProcessDetails.GetWindowVisibility(),
+            Urls = UrlExtractor.Extract(commandLine),
         };
     }
 

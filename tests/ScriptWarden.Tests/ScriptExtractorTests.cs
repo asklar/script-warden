@@ -158,6 +158,24 @@ public class ScriptExtractorTests
         Assert.Contains(results, r => r.Kind == ScriptKind.FileReference && r.OriginalPath == @"\\server\share\deploy.ps1");
     }
 
+    [Theory]
+    [InlineData(@"\\server\share\sub\deploy.ps1")]
+    [InlineData(@"\\10.0.0.5\c$\it\deploy.ps1")]
+    [InlineData(@"\\?\UNC\server\share\deploy.ps1")]
+    [InlineData(@"& '\\server\share\deploy.ps1'")]
+    public void Heuristic_UncForms_AreCaptured(string command)
+    {
+        var results = ScriptExtractor.Extract("powershell.exe", ["-Command", command], @"C:\w");
+        Assert.Contains(results, r => r.Kind == ScriptKind.FileReference);
+    }
+
+    [Fact]
+    public void Cmd_UncBatchPath_IsCaptured()
+    {
+        var results = ScriptExtractor.Extract("cmd.exe", ["/c", @"\\server\share\logon.bat"], @"C:\w");
+        Assert.Contains(results, r => r.Kind == ScriptKind.FileReference && r.FilePath == @"\\server\share\logon.bat");
+    }
+
     [Fact]
     public void EncodedCommand_WithEmbeddedPath_CapturesInnerScript()
     {

@@ -29,6 +29,7 @@ export interface AuditEvent {
     exitCode?: number;
     durationMs?: number;
     scripts: CapturedScript[];
+    urls: string[];
     origin: string;
     window: string;
 }
