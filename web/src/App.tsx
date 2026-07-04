@@ -82,6 +82,7 @@ import {
     refreshAnalysis,
     getAnalysisEvents,
 } from "./api";
+import { highlightScript } from "./highlight";
 
 const useStyles = makeStyles({
     root: { maxWidth: "1200px", margin: "0 auto", padding: "24px", display: "flex", flexDirection: "column", gap: "12px" },
@@ -124,6 +125,17 @@ const useStyles = makeStyles({
     url: { fontFamily: tokens.fontFamilyMonospace, fontSize: tokens.fontSizeBase200, wordBreak: "break-all" },
     mono: { fontFamily: tokens.fontFamilyMonospace, whiteSpace: "pre-wrap", wordBreak: "break-all", background: tokens.colorNeutralBackground3, padding: "8px", borderRadius: tokens.borderRadiusMedium, margin: 0 },
     scriptView: { fontFamily: tokens.fontFamilyMonospace, fontSize: tokens.fontSizeBase200, whiteSpace: "pre-wrap", wordBreak: "break-word", background: tokens.colorNeutralBackground3, padding: "12px", borderRadius: tokens.borderRadiusMedium, maxHeight: "320px", overflow: "auto", margin: 0 },
+    highlight: {
+        "& .hljs-comment, & .hljs-quote": { color: tokens.colorNeutralForeground4, fontStyle: "italic" },
+        "& .hljs-keyword, & .hljs-selector-tag, & .hljs-literal, & .hljs-doctag": { color: tokens.colorPaletteBlueForeground2 },
+        "& .hljs-built_in, & .hljs-type, & .hljs-class .hljs-title": { color: tokens.colorPalettePurpleForeground2 },
+        "& .hljs-string, & .hljs-attr, & .hljs-symbol, & .hljs-meta .hljs-string": { color: tokens.colorPaletteGreenForeground2 },
+        "& .hljs-number": { color: tokens.colorPaletteBerryForeground2 },
+        "& .hljs-variable, & .hljs-template-variable": { color: tokens.colorPaletteMarigoldForeground2 },
+        "& .hljs-title, & .hljs-section, & .hljs-name, & .hljs-tag": { color: tokens.colorBrandForeground1 },
+        "& .hljs-attribute": { color: tokens.colorPaletteMarigoldForeground2 },
+        "& .hljs-meta": { color: tokens.colorNeutralForeground3 },
+    },
     fieldGrid: { display: "grid", gridTemplateColumns: "140px 1fr", rowGap: "4px", columnGap: "12px", alignItems: "start" },
     label: { color: tokens.colorNeutralForeground3 },
     scriptCard: { border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusMedium, padding: "12px", marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" },
@@ -875,7 +887,11 @@ function ScriptCard({ script, origin }: { script: CapturedScript; origin: string
             {!hasContent && <Caption1>No content stored (see note above).</Caption1>}
             {loading && <Spinner size="tiny" label="Loading…" />}
             {err && <Caption1>Error: {err}</Caption1>}
-            {content !== null && <pre className={styles.scriptView}>{content}</pre>}
+            {content !== null && (
+                <pre className={mergeClasses(styles.scriptView, styles.highlight)}>
+                    <code dangerouslySetInnerHTML={{ __html: highlightScript(content, script.language) }} />
+                </pre>
+            )}
         </div>
     );
 }
