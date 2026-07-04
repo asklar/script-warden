@@ -155,6 +155,9 @@ const useStyles = makeStyles({
 });
 
 const ALL = "all";
+// Sentinel value for the synthetic "All" row in MultiFilterDropdown. A real process/parent name
+// can never equal this, so it will never collide with a genuine option.
+const ALL_SENTINEL = "\u0000__all__";
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -516,16 +519,36 @@ function FilterDropdown({ label, value, options, onChange, format }: { label: st
     );
 }
 
-// Include-style multiselect: no selection means "all"; otherwise show only the checked values.
-// (To see "everything but copilot.exe", select every other parent.)
+// Include-style multiselect with a synthetic "All" row.
+//  - "All" checked (the default) ⇔ empty selection ⇔ no filter; the individual rows are disabled.
+//  - Unchecking "All" checks every parent, so you can then uncheck a few (e.g. hide copilot.exe)
+//    without N clicks. Unchecking the last individual row falls back to "All".
 function MultiFilterDropdown({ label, values, options, onChange, format }: { label: string; values: string[]; options: string[]; onChange: (v: string[]) => void; format?: (v: string) => string }) {
     const display = (v: string) => (format ? format(v) : v);
-    const text = values.length === 0 ? "all" : values.length === 1 ? display(values[0]) : `${values.length} selected`;
+    const allSelected = values.length === 0;
+    const text = allSelected ? "all" : values.length === 1 ? display(values[0]) : `${values.length} selected`;
     return (
         <div>
             <Caption1 block>{label}</Caption1>
-            <Dropdown multiselect placeholder="all" value={text} selectedOptions={values} onOptionSelect={(_, d) => onChange(d.selectedOptions)}>
-                {options.map((o) => (<Option key={o} value={o}>{display(o)}</Option>))}
+            <Dropdown
+                multiselect
+                placeholder="all"
+                value={text}
+                selectedOptions={allSelected ? [ALL_SENTINEL] : values}
+                onOptionSelect={(_, d) => {
+                    const v = d.optionValue;
+                    if (v === undefined) return;
+                    if (v === ALL_SENTINEL) {
+                        // On → switch to an explicit full set (so a few can be unchecked); off → back to all.
+                        onChange(allSelected ? [...options] : []);
+                        return;
+                    }
+                    if (allSelected) return; // individual rows are disabled while "All" is on
+                    onChange(values.includes(v) ? values.filter((x) => x !== v) : [...values, v]);
+                }}
+            >
+                <Option key={ALL_SENTINEL} value={ALL_SENTINEL}>All</Option>
+                {options.map((o) => (<Option key={o} value={o} disabled={allSelected}>{display(o)}</Option>))}
             </Dropdown>
         </div>
     );
