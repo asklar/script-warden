@@ -102,7 +102,7 @@ const useStyles = makeStyles({
     chainNode: { display: "inline-flex", alignItems: "center", gap: "4px", minWidth: 0, maxWidth: "100%" },
     chainChip: {
         display: "inline-block",
-        maxWidth: "240px",
+        maxWidth: "min(240px, 100%)",
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
@@ -124,7 +124,6 @@ const useStyles = makeStyles({
     urlList: { display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 },
     url: { fontFamily: tokens.fontFamilyMonospace, fontSize: tokens.fontSizeBase200, wordBreak: "break-all" },
     mono: { fontFamily: tokens.fontFamilyMonospace, whiteSpace: "pre-wrap", wordBreak: "break-all", background: tokens.colorNeutralBackground3, padding: "8px", borderRadius: tokens.borderRadiusMedium, margin: 0 },
-    scriptView: { fontFamily: tokens.fontFamilyMonospace, fontSize: tokens.fontSizeBase200, whiteSpace: "pre-wrap", wordBreak: "break-word", background: tokens.colorNeutralBackground3, padding: "12px", borderRadius: tokens.borderRadiusMedium, maxHeight: "320px", overflow: "auto", margin: 0 },
     highlight: {
         "& .hljs-comment, & .hljs-quote": { color: tokens.colorNeutralForeground4, fontStyle: "italic" },
         "& .hljs-keyword, & .hljs-selector-tag, & .hljs-literal, & .hljs-doctag": { color: tokens.colorPaletteBlueForeground2 },
@@ -136,10 +135,15 @@ const useStyles = makeStyles({
         "& .hljs-attribute": { color: tokens.colorPaletteMarigoldForeground2 },
         "& .hljs-meta": { color: tokens.colorNeutralForeground3 },
     },
-    fieldGrid: { display: "grid", gridTemplateColumns: "140px 1fr", rowGap: "4px", columnGap: "12px", alignItems: "start" },
+    fieldGrid: { display: "grid", gridTemplateColumns: "140px minmax(0, 1fr)", rowGap: "4px", columnGap: "12px", alignItems: "start", "& > *": { minWidth: 0, overflowWrap: "anywhere" } },
     label: { color: tokens.colorNeutralForeground3 },
-    scriptCard: { border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusMedium, padding: "12px", marginTop: "8px", display: "flex", flexDirection: "column", gap: "6px" },
     scriptActions: { display: "flex", gap: "8px", alignItems: "center" },
+    detailLayout: { display: "flex", gap: "20px", alignItems: "stretch", minWidth: 0 },
+    detailMeta: { flex: "0 0 400px", minWidth: 0, maxHeight: "68vh", overflowY: "auto", overflowX: "hidden", paddingRight: "4px" },
+    detailScripts: { flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: "8px", borderLeft: `1px solid ${tokens.colorNeutralStroke2}`, paddingLeft: "20px" },
+    scriptsPanel: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
+    scriptPaneBody: { display: "flex", flexDirection: "column", gap: "6px", minWidth: 0 },
+    scriptPaneView: { fontFamily: tokens.fontFamilyMonospace, fontSize: tokens.fontSizeBase200, whiteSpace: "pre-wrap", wordBreak: "break-word", background: tokens.colorNeutralBackground3, padding: "12px", borderRadius: tokens.borderRadiusMedium, maxHeight: "56vh", overflow: "auto", margin: 0 },
     settings: { display: "flex", flexDirection: "column", gap: "20px", maxWidth: "680px" },
     section: { display: "flex", flexDirection: "column", gap: "8px" },
     tagRow: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" },
@@ -827,50 +831,57 @@ function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void
 
 function EventDialog({ event, onClose }: { event: AuditEvent | null; onClose: () => void }) {
     const styles = useStyles();
+    const hasScripts = (event?.scripts.length ?? 0) > 0;
     return (
         <Dialog open={event !== null} onOpenChange={(_, d) => !d.open && onClose()}>
-            <DialogSurface>
+            <DialogSurface style={hasScripts ? { maxWidth: "min(1180px, 94vw)", width: "min(1180px, 94vw)" } : undefined}>
                 {event && (
                     <DialogBody>
                         <DialogTitle>{event.hookedImage} — {fmtTime(event.timestampUtc)}</DialogTitle>
                         <DialogContent>
-                            <div className={styles.fieldGrid}>
-                                <Text className={styles.label}>Target</Text>
-                                <Text>{event.targetPath}</Text>
-                                <Text className={styles.label}>Command line</Text>
-                                <pre className={styles.mono}>{event.commandLine}</pre>
-                                <Text className={styles.label}>Visibility</Text>
-                                <Text>{windowLabel(event.window)}{event.window === "NoWindow" ? " — ran in the background, no console" : ""}</Text>
-                                <Text className={styles.label}>User</Text>
-                                <Text>{event.user}{event.userSid ? ` (${event.userSid})` : ""}</Text>
-                                <Text className={styles.label}>Session</Text>
-                                <Text>{event.sessionId}</Text>
-                                <Text className={styles.label}>Started by</Text>
-                                <Text>{event.parentProcessName} (pid {event.parentProcessId}){event.parentProcessPath ? ` — ${event.parentProcessPath}` : ""}</Text>
-                                <Text className={styles.label}>Launch chain</Text>
-                                <LaunchChain event={event} />
-                                {event.urls && event.urls.length > 0 && (
-                                    <>
-                                        <Text className={styles.label}>URLs referenced</Text>
-                                        <div className={styles.urlList}>
-                                            {event.urls.map((u, i) => (<Text key={i} className={styles.url}>{u}</Text>))}
-                                        </div>
-                                    </>
+                            <div className={styles.detailLayout}>
+                                <div className={hasScripts ? styles.detailMeta : undefined}>
+                                    <div className={styles.fieldGrid}>
+                                        <Text className={styles.label}>Target</Text>
+                                        <Text>{event.targetPath}</Text>
+                                        <Text className={styles.label}>Command line</Text>
+                                        <pre className={styles.mono}>{event.commandLine}</pre>
+                                        <Text className={styles.label}>Visibility</Text>
+                                        <Text>{windowLabel(event.window)}{event.window === "NoWindow" ? " — ran in the background, no console" : ""}</Text>
+                                        <Text className={styles.label}>User</Text>
+                                        <Text>{event.user}{event.userSid ? ` (${event.userSid})` : ""}</Text>
+                                        <Text className={styles.label}>Session</Text>
+                                        <Text>{event.sessionId}</Text>
+                                        <Text className={styles.label}>Started by</Text>
+                                        <Text>{event.parentProcessName} (pid {event.parentProcessId}){event.parentProcessPath ? ` — ${event.parentProcessPath}` : ""}</Text>
+                                        <Text className={styles.label}>Launch chain</Text>
+                                        <LaunchChain event={event} />
+                                        {event.urls && event.urls.length > 0 && (
+                                            <>
+                                                <Text className={styles.label}>URLs referenced</Text>
+                                                <div className={styles.urlList}>
+                                                    {event.urls.map((u, i) => (<Text key={i} className={styles.url}>{u}</Text>))}
+                                                </div>
+                                            </>
+                                        )}
+                                        <Text className={styles.label}>Working dir</Text>
+                                        <Text>{event.workingDirectory}</Text>
+                                        <Text className={styles.label}>Origin</Text>
+                                        <Text>{event.origin}</Text>
+                                        <Text className={styles.label}>Exit code</Text>
+                                        <Text>{event.exitCode ?? "(still running / unknown)"}</Text>
+                                        <Text className={styles.label}>Duration</Text>
+                                        <Text>{event.durationMs === undefined ? "(still running / unknown)" : fmtDuration(event.durationMs)}</Text>
+                                    </div>
+                                    {!hasScripts && <Caption1 block>No script or inline command was captured.</Caption1>}
+                                </div>
+                                {hasScripts && (
+                                    <div className={styles.detailScripts}>
+                                        <Subtitle2>Captured scripts ({event.scripts.length})</Subtitle2>
+                                        <ScriptsPanel scripts={event.scripts} origin={event.origin} />
+                                    </div>
                                 )}
-                                <Text className={styles.label}>Working dir</Text>
-                                <Text>{event.workingDirectory}</Text>
-                                <Text className={styles.label}>Origin</Text>
-                                <Text>{event.origin}</Text>
-                                <Text className={styles.label}>Exit code</Text>
-                                <Text>{event.exitCode ?? "(still running / unknown)"}</Text>
-                                <Text className={styles.label}>Duration</Text>
-                                <Text>{event.durationMs === undefined ? "(still running / unknown)" : fmtDuration(event.durationMs)}</Text>
                             </div>
-
-                            <Divider style={{ margin: "16px 0" }} />
-                            <Subtitle2>Captured scripts ({event.scripts.length})</Subtitle2>
-                            {event.scripts.length === 0 && <Caption1 block>No script or inline command was captured.</Caption1>}
-                            {event.scripts.map((s, i) => (<ScriptCard key={i} script={s} origin={event.origin} />))}
                         </DialogContent>
                         <DialogActions>
                             <Button appearance="primary" onClick={onClose}>Close</Button>
@@ -882,54 +893,68 @@ function EventDialog({ event, onClose }: { event: AuditEvent | null; onClose: ()
     );
 }
 
-function ScriptCard({ script, origin }: { script: CapturedScript; origin: string }) {
+// Right-hand panel for a details dialog: one tab per captured script; selecting a tab auto-loads
+// and shows that script's (syntax-highlighted) content, so no per-script "View" click is needed.
+function ScriptsPanel({ scripts, origin }: { scripts: CapturedScript[]; origin: string }) {
     const styles = useStyles();
-    const [content, setContent] = useState<string | null>(null);
+    const [selected, setSelected] = useState(0);
+    const [cache, setCache] = useState<Record<number, string>>({});
     const [loading, setLoading] = useState(false);
     const [err, setErr] = useState<string | null>(null);
-    const hasContent = script.sha256.length > 0;
 
-    async function view() {
-        if (content !== null) {
-            setContent(null);
-            return;
-        }
-        setLoading(true);
+    const script = scripts[selected];
+    const hasContent = !!script && script.sha256.length > 0;
+
+    useEffect(() => {
         setErr(null);
-        try {
-            setContent(await getScript(script, origin));
-        } catch (e) {
-            setErr(e instanceof Error ? e.message : String(e));
-        } finally {
-            setLoading(false);
-        }
-    }
+        if (!script || !hasContent || cache[selected] !== undefined) return;
+        let cancelled = false;
+        setLoading(true);
+        getScript(script, origin)
+            .then((text) => { if (!cancelled) setCache((c) => ({ ...c, [selected]: text })); })
+            .catch((e) => { if (!cancelled) setErr(e instanceof Error ? e.message : String(e)); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selected, origin]);
+
+    if (!script) return null;
+    const content = cache[selected];
 
     return (
-        <div className={styles.scriptCard}>
-            <div className={styles.scriptActions}>
-                <Badge appearance="outline">{script.kind}</Badge>
-                <Badge appearance="outline" color="brand">{script.language}</Badge>
-                {script.truncated && <Badge appearance="tint" color="warning">truncated</Badge>}
-                <div className={styles.grow} />
-                {hasContent && (
-                    <>
-                        <Button size="small" onClick={() => void view()}>{content !== null ? "Hide" : "View"}</Button>
-                        <Link href={scriptUrl(script, origin, true)} target="_blank"><ArrowDownloadRegular /> Download</Link>
-                    </>
+        <div className={styles.scriptsPanel}>
+            <TabList selectedValue={String(selected)} onTabSelect={(_, d) => setSelected(Number(d.value))} size="small">
+                {scripts.map((s, i) => (<Tab key={i} value={String(i)}>{scriptTabLabel(s, i)}</Tab>))}
+            </TabList>
+            <div className={styles.scriptPaneBody}>
+                <div className={styles.scriptActions}>
+                    <Badge appearance="outline">{script.kind}</Badge>
+                    <Badge appearance="outline" color="brand">{script.language}</Badge>
+                    {script.truncated && <Badge appearance="tint" color="warning">truncated</Badge>}
+                    <div className={styles.grow} />
+                    {hasContent && <Link href={scriptUrl(script, origin, true)} target="_blank"><ArrowDownloadRegular /> Download</Link>}
+                </div>
+                {script.originalPath && <Caption1>Path: {script.originalPath} · {fmtSize(script.sizeBytes)}</Caption1>}
+                {!script.originalPath && hasContent && <Caption1>{fmtSize(script.sizeBytes)}</Caption1>}
+                {script.note && <Caption1>Note: {script.note}</Caption1>}
+                {!hasContent && <Caption1>No content stored (see note above).</Caption1>}
+                {loading && <Spinner size="tiny" label="Loading…" />}
+                {err && <Caption1>Error: {err}</Caption1>}
+                {hasContent && content !== undefined && (
+                    <pre className={mergeClasses(styles.scriptPaneView, styles.highlight)}>
+                        <code dangerouslySetInnerHTML={{ __html: highlightScript(content, script.language) }} />
+                    </pre>
                 )}
             </div>
-            {script.originalPath && <Caption1>Path: {script.originalPath} · {fmtSize(script.sizeBytes)}</Caption1>}
-            {!script.originalPath && hasContent && <Caption1>{fmtSize(script.sizeBytes)}</Caption1>}
-            {script.note && <Caption1>Note: {script.note}</Caption1>}
-            {!hasContent && <Caption1>No content stored (see note above).</Caption1>}
-            {loading && <Spinner size="tiny" label="Loading…" />}
-            {err && <Caption1>Error: {err}</Caption1>}
-            {content !== null && (
-                <pre className={mergeClasses(styles.scriptView, styles.highlight)}>
-                    <code dangerouslySetInnerHTML={{ __html: highlightScript(content, script.language) }} />
-                </pre>
-            )}
         </div>
     );
+}
+
+// Short, unique-ish tab label: the file's base name when it came from disk, else its kind.
+function scriptTabLabel(s: CapturedScript, i: number): string {
+    if (s.originalPath) {
+        const base = s.originalPath.replace(/[/\\]+$/, "").split(/[/\\]/).pop();
+        if (base) return base;
+    }
+    return s.kind || `script ${i + 1}`;
 }
