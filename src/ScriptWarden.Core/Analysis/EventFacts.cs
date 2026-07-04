@@ -33,6 +33,18 @@ public sealed class EventFacts
             if (!string.IsNullOrEmpty(a.Name)) names.Add(a.Name!);
             if (!string.IsNullOrEmpty(a.Path)) paths.Add(a.Path!);
         }
+        // Ensure the immediate parent is represented even when the full ancestor chain wasn't
+        // captured (events recorded before ancestor-chain capture existed have only ParentProcess*).
+        if (!string.IsNullOrEmpty(ev.ParentProcessName) &&
+            !names.Any(n => string.Equals(n, ev.ParentProcessName, StringComparison.OrdinalIgnoreCase)))
+        {
+            names.Insert(0, ev.ParentProcessName!);
+        }
+        if (!string.IsNullOrEmpty(ev.ParentProcessPath) &&
+            !paths.Any(p => string.Equals(p, ev.ParentProcessPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            paths.Insert(0, ev.ParentProcessPath!);
+        }
         return new EventFacts
         {
             HookedImage = ev.HookedImage,

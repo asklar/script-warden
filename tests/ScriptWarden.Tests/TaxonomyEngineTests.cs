@@ -132,4 +132,24 @@ public class TaxonomyEngineTests
         ] };
         Assert.Empty(TaxonomyEngine.Classify(t, Facts([], cmd: "x")));
     }
+
+    [Fact]
+    public void From_FoldsImmediateParent_WhenAncestorChainEmpty()
+    {
+        // Events recorded before ancestor-chain capture have ParentProcessName but no Ancestors.
+        var ev = new AuditEvent { ParentProcessName = "copilot.exe", Ancestors = [] };
+        EventFacts facts = EventFacts.From(ev);
+        Assert.Contains("copilot.exe", facts.AncestorNames);
+
+        var tax = new Taxonomy
+        {
+            Id = "source", MultiLabel = true,
+            Rules =
+            [
+                new Rule { Label = "Dev tools (mine)", Any = [new Predicate { Field = "ancestorName", Op = "in", Values = ["copilot.exe"] }] },
+                new Rule { Label = "Unknown", Default = true },
+            ],
+        };
+        Assert.Equal(["Dev tools (mine)"], TaxonomyEngine.Classify(tax, facts));
+    }
 }

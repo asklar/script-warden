@@ -18,6 +18,7 @@ namespace ScriptWarden.Analysis;
 internal sealed class AnalysisStore : IDisposable
 {
     private const int SchemaVersion = 1;
+    private const string EngineVersion = "2"; // bump to force re-labeling of existing events
     private const int BatchSize = 400;
     private readonly object _lock = new();
     private readonly string _dbPath;
@@ -168,7 +169,9 @@ internal sealed class AnalysisStore : IDisposable
 
     private bool ReclassifyIfTaxonomiesChanged(List<Taxonomy> taxonomies, ScriptContentProvider content)
     {
-        string hash = TaxonomyStore.ContentHash(taxonomies);
+        // Prefix with the enrichment-engine version so a logic change (not just a taxonomy edit) also
+        // forces existing events to be re-labeled on the next analyze.
+        string hash = EngineVersion + ":" + TaxonomyStore.ContentHash(taxonomies);
         if (GetMeta("taxHash") == hash)
         {
             return false;
