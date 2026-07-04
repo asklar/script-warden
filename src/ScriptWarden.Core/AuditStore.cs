@@ -67,8 +67,37 @@ public static class AuditStore
         }
     }
 
+    /// <summary>Reads all archived events from a single root (recursive), tagging with <paramref name="origin"/>.</summary>
+    public static IEnumerable<AuditEvent> ReadArchivedEvents(string root, AuditOrigin origin)
+    {
+        string dir = DataRoots.ArchiveDir(root);
+        if (!Directory.Exists(dir))
+        {
+            yield break;
+        }
+
+        IEnumerable<string> files;
+        try
+        {
+            files = Directory.EnumerateFiles(dir, "*.json", SearchOption.AllDirectories);
+        }
+        catch
+        {
+            yield break;
+        }
+
+        foreach (string file in files)
+        {
+            AuditEvent? ev = TryRead(file, origin);
+            if (ev is not null)
+            {
+                yield return ev;
+            }
+        }
+    }
+
     /// <summary>Reads and merges events from all viewer roots, newest first.</summary>
-    public static List<AuditEvent> ReadAllForViewer(out IReadOnlyList<ResolvedRoot> roots)
+    public static List<AuditEvent> ReadAllForViewer(out IReadOnlyList<ResolvedRoot> roots, bool includeArchive = false)
     {
         roots = DataRoots.ForViewer();
         var all = new List<AuditEvent>();
@@ -79,17 +108,60 @@ public static class AuditStore
                 continue;
             }
             all.AddRange(ReadEvents(root.Path, root.Origin));
+            if (includeArchive)
+            {
+                all.AddRange(ReadArchivedEvents(root.Path, root.Origin));
+            }
         }
-        all.Sort(static (a, b) => b.TimestampUtc.CompareTo(a.TimestampUtc));
-        return all;
+
+        // De-duplicate by event id (events\ and archive\ can briefly overlap during a race), newest first.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var deduped = new List<AuditEvent>(all.Count);
+        foreach (AuditEvent e in all)
+        {
+            if (string.IsNullOrEmpty(e.EventId) || seen.Add(e.EventId))
+            {
+                deduped.Add(e);
+            }
+        }
+        deduped.Sort(static (a, b) => b.TimestampUtc.CompareTo(a.TimestampUtc));
+        return deduped;
     }
 
-    /// <summary>Deletes all event and script files under a root. Returns counts deleted; robust to locks.</summary>
+    /// <summary>Deletes all event, archived-event, and script files under a root. Robust to locks.</summary>
     public static (int Events, int Scripts) ClearRoot(string root)
     {
         int events = DeleteFilesIn(DataRoots.EventsDir(root), "*.json");
+        events += DeleteTree(DataRoots.ArchiveDir(root));
         int scripts = DeleteFilesIn(DataRoots.ScriptsDir(root), "*");
         return (events, scripts);
+    }
+
+    /// <summary>Recursively counts then deletes a directory tree (best-effort). Returns files removed.</summary>
+    private static int DeleteTree(string dir)
+    {
+        if (!Directory.Exists(dir))
+        {
+            return 0;
+        }
+        int count = 0;
+        try
+        {
+            count = Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Count();
+        }
+        catch
+        {
+            // ignore
+        }
+        try
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+        catch
+        {
+            // best-effort: a file may be locked
+        }
+        return count;
     }
 
     private static int DeleteFilesIn(string dir, string pattern)

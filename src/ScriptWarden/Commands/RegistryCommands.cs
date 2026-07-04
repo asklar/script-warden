@@ -163,6 +163,9 @@ internal static class RegistryCommands
             {
                 lines.Add($"  NOTE: could not overwrite {dst} (in use?); keeping existing copy");
             }
+
+            // Copy the native SQLite sidecar the viewer needs (only loaded by `serve`, never the shim).
+            CopySidecars(Path.GetDirectoryName(src)!, dir, lines);
         }
         else
         {
@@ -170,6 +173,29 @@ internal static class RegistryCommands
         }
 
         return dst;
+    }
+
+    private static readonly string[] Sidecars = ["e_sqlite3.dll"];
+
+    private static void CopySidecars(string srcDir, string dstDir, List<string> lines)
+    {
+        foreach (string name in Sidecars)
+        {
+            string s = Path.Combine(srcDir, name);
+            if (!File.Exists(s))
+            {
+                continue;
+            }
+            try
+            {
+                File.Copy(s, Path.Combine(dstDir, name), overwrite: true);
+                lines.Add($"  copied {name}");
+            }
+            catch (IOException)
+            {
+                lines.Add($"  NOTE: could not overwrite {name} (in use?); keeping existing copy");
+            }
+        }
     }
 
     private static int ElevateAndReport(string[] args)

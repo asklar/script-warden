@@ -43,6 +43,9 @@ public static class DataRoots
 
     public static string ScriptsDir(string root) => Path.Combine(root, "scripts");
 
+    /// <summary>Where the viewer moves already-ingested event files (per day) to keep <c>events\</c> small.</summary>
+    public static string ArchiveDir(string root) => Path.Combine(root, "archive");
+
     public static void EnsureLayout(string root)
     {
         Directory.CreateDirectory(EventsDir(root));

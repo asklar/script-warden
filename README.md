@@ -56,7 +56,8 @@ captured:
 
 ## Quick start
 
-Grab `script-warden.exe` (a single self-contained file, no runtime to install), then:
+Grab `script-warden.exe` (plus `e_sqlite3.dll` alongside it — the viewer's database engine;
+no runtime to install), then:
 
 ```powershell
 script-warden install      # start monitoring (prompts for admin; machine-wide)
@@ -94,12 +95,19 @@ Per-user, under `%LOCALAPPDATA%\script-warden` (override with `SCRIPT_WARDEN_DAT
 ```
 events\<utc-timestamp>-<pid>-<id>.json   one file per launch (lock-free)
 scripts\<sha256>.<ext>                   captured scripts, de-duplicated by content
+archive\<yyyy-MM-dd>\…                    events already ingested into the viewer index
+index.db                                 the viewer's SQLite index (a rebuildable cache)
 ```
 
 Scripts that run as **SYSTEM** are captured under
 `C:\Windows\System32\config\systemprofile\AppData\Local\script-warden`. The viewer reads both
 locations; reading the SYSTEM location generally requires elevation, so the viewer runs best-effort
 and flags it in the UI when it can't.
+
+The shim only ever *writes* the per-launch JSON files (lock-free, no shared state — this is the hot
+path and stays fast). The viewer maintains a persistent **SQLite index** (`index.db`) purely for
+fast, paginated queries: it ingests new event files, moving completed ones into `archive\`, so it
+never re-reads the whole trail on startup. The index is a derived cache — delete it and it rebuilds.
 
 ---
 
@@ -135,7 +143,7 @@ Requires the .NET 10 SDK, Node 20+, and the MSVC C++ toolchain (for Native AOT l
 # Web UI (produces web/dist/index.html, embedded into the exe)
 cd web; npm ci; npm run build; cd ..
 
-# Native AOT single-file exe -> src/ScriptWarden/bin/Release/net10.0-windows/win-x64/publish/
+# Native AOT exe (+ e_sqlite3.dll sidecar) -> src/ScriptWarden/bin/Release/net10.0-windows/win-x64/publish/
 dotnet publish src/ScriptWarden/ScriptWarden.csproj -c Release -r win-x64
 ```
 

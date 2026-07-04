@@ -1,4 +1,5 @@
 using ScriptWarden.Core;
+using ScriptWarden.Web;
 
 namespace ScriptWarden.Commands;
 
@@ -43,7 +44,30 @@ internal static class ClearCommand
             Console.WriteLine($"  {r.Origin}: cleared {e} event(s), {s} script(s)");
         }
 
+        // Remove the viewer's SQLite index (rebuilt on next serve/list). Best-effort: a running
+        // viewer may hold it open, in which case its own clear endpoint empties it instead.
+        DeleteIndexFiles();
+
         Console.WriteLine($"Cleared {totalEvents} event(s) and {totalScripts} script(s).");
         return 0;
+    }
+
+    private static void DeleteIndexFiles()
+    {
+        string db = SqliteIndex.DefaultDbPath();
+        foreach (string path in new[] { db, db + "-wal", db + "-shm" })
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch
+            {
+                // best-effort; likely held open by a running `serve`
+            }
+        }
     }
 }

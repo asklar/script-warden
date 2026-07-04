@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using ScriptWarden.Core;
+using ScriptWarden.Web;
 
 namespace ScriptWarden.Commands;
 
@@ -32,21 +33,17 @@ internal static class ListCommand
             limit = l;
         }
 
-        List<AuditEvent> events = AuditStore.ReadAllForViewer(out IReadOnlyList<ResolvedRoot> roots);
+        // Read from the persistent index (catching it up first). Fall back to scanning the JSON files
+        // (events + archive) if the index can't be opened, so `list` always works.
+        int total;
+        List<AuditEvent> events = QueryIndex(imageFilter, since, limit, out total)
+                                  ?? ScanFiles(imageFilter, since, limit, out total);
 
-        if (imageFilter is not null)
-        {
-            events = events.Where(e => string.Equals(e.HookedImage, imageFilter, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
-        if (since is not null)
-        {
-            events = events.Where(e => e.TimestampUtc >= since.Value).ToList();
-        }
+        IReadOnlyList<ResolvedRoot> roots = DataRoots.ForViewer();
 
         if (opts.Has("json"))
         {
-            List<AuditEvent> limited = events.Take(limit).ToList();
-            Console.WriteLine(JsonSerializer.Serialize(limited, AuditJsonContext.Default.ListAuditEvent));
+            Console.WriteLine(JsonSerializer.Serialize(events, AuditJsonContext.Default.ListAuditEvent));
             return 0;
         }
 
@@ -67,7 +64,7 @@ internal static class ListCommand
         Console.WriteLine($"{"time (UTC)",-20} {"image",-16} {"scr",3} {"exit",4}  {"parent",-16} detail");
         Console.WriteLine(new string('-', 100));
 
-        foreach (AuditEvent e in events.Take(limit))
+        foreach (AuditEvent e in events)
         {
             string time = e.TimestampUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
             string exit = e.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "-";
@@ -77,8 +74,42 @@ internal static class ListCommand
         }
 
         Console.WriteLine();
-        Console.WriteLine($"{events.Count} event(s); showing up to {limit}.");
+        Console.WriteLine($"{total} event(s); showing up to {limit}.");
         return 0;
+    }
+
+    private static List<AuditEvent>? QueryIndex(string? image, DateTimeOffset? since, int limit, out int total)
+    {
+        total = 0;
+        try
+        {
+            using var index = new SqliteIndex(SqliteIndex.DefaultDbPath());
+            index.Open();
+            index.Reconcile();
+            SqliteIndex.Page page = index.Query(image, origin: null, parent: null, window: null, search: null,
+                offset: 0, limit: limit, sinceUnixMs: since?.ToUnixTimeMilliseconds());
+            total = page.Total;
+            return page.Events;
+        }
+        catch
+        {
+            return null; // fall back to file scan
+        }
+    }
+
+    private static List<AuditEvent> ScanFiles(string? image, DateTimeOffset? since, int limit, out int total)
+    {
+        List<AuditEvent> events = AuditStore.ReadAllForViewer(out _, includeArchive: true);
+        if (image is not null)
+        {
+            events = events.Where(e => string.Equals(e.HookedImage, image, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        if (since is not null)
+        {
+            events = events.Where(e => e.TimestampUtc >= since.Value).ToList();
+        }
+        total = events.Count;
+        return events.Take(limit).ToList();
     }
 
     private static string Detail(AuditEvent e)

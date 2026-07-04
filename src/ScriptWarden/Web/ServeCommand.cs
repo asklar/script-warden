@@ -37,11 +37,19 @@ internal static partial class ServeCommand
             TryOpenBrowser(url);
         }
 
-        // Prime the newest events synchronously for a fast first paint, then index the rest (and
-        // keep watching for new events) on a background thread so `serve` responds immediately even
-        // with a large audit trail.
-        Cache.Prime(200);
-        Cache.Start();
+        // Open the persistent SQLite index and start catching it up in the background (a reconcile
+        // loop + file watchers). Because the index persists across runs, the first paint is instant
+        // even with a large trail — no re-reading every JSON file on each `serve`.
+        try
+        {
+            Index.Open();
+            Index.Start();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"script-warden: failed to open the audit index: {ex.Message}");
+            return 1;
+        }
 
         try
         {
@@ -109,6 +117,16 @@ internal static partial class ServeCommand
         }
 
         var result = new ClearResult { Events = events, Scripts = scripts, Roots = cleared };
+        // The on-disk events + archive were deleted; drop the index rows so the viewer reflects it at once.
+        try
+        {
+            Index.ClearRows();
+            Index.ReconcileNow();
+        }
+        catch
+        {
+            // best-effort; the reconcile loop will reconcile shortly regardless
+        }
         return HttpResponse.Json(JsonSerializer.Serialize(result, ServeJsonContext.Default.ClearResult));
     }
 
@@ -139,20 +157,17 @@ internal static partial class ServeCommand
         return HttpResponse.Json(JsonSerializer.Serialize(config, AuditJsonContext.Default.WardenConfig));
     }
 
-    private static readonly EventCache Cache = new();
+    private static readonly IndexService Index = new(SqliteIndex.DefaultDbPath());
 
     private static HttpResponse ApiStatus()
     {
-        List<AuditEvent> events = Cache.Snapshot();
-        IReadOnlyList<ResolvedRoot> roots = Cache.Roots;
-        AuditFacets facets = AuditQuery.Facets(events);
         var status = new ServeStatus
         {
             Version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0",
-            EventCount = events.Count,
-            TotalOnDisk = Cache.TotalOnDisk,
-            Indexing = Cache.Indexing,
-            Roots = roots.Select(r => new RootDto
+            EventCount = Index.EventCount,
+            TotalOnDisk = Index.TotalOnDisk,
+            Indexing = Index.Indexing,
+            Roots = Index.Roots.Select(r => new RootDto
             {
                 Path = r.Path,
                 Origin = r.Origin.ToString(),
@@ -160,21 +175,19 @@ internal static partial class ServeCommand
                 Readable = r.Readable,
                 Error = r.Error,
             }).ToList(),
-            Images = facets.Images,
-            Parents = facets.Parents,
-            Windows = facets.Windows,
+            Images = Index.Distinct("hooked_image"),
+            Parents = Index.Distinct("parent_name"),
+            Windows = Index.Distinct("window"),
         };
         return HttpResponse.Json(JsonSerializer.Serialize(status, ServeJsonContext.Default.ServeStatus));
     }
 
     private static HttpResponse ApiEvents(HttpRequest req)
     {
-        List<AuditEvent> events = Cache.Snapshot();
         int offset = ParseInt(req.Query.GetValueOrDefault("offset"), 0);
         int limit = Math.Clamp(ParseInt(req.Query.GetValueOrDefault("limit"), 100), 1, 500);
 
-        EventsPage page = AuditQuery.Query(
-            events,
+        SqliteIndex.Page result = Index.Query(
             image: req.Query.GetValueOrDefault("image"),
             origin: req.Query.GetValueOrDefault("origin"),
             parent: req.Query.GetValueOrDefault("parent"),
@@ -183,6 +196,7 @@ internal static partial class ServeCommand
             offset: offset,
             limit: limit);
 
+        var page = new EventsPage { Total = result.Total, Offset = offset, Limit = limit, Events = result.Events };
         return HttpResponse.Json(JsonSerializer.Serialize(page, AuditJsonContext.Default.EventsPage));
     }
 
