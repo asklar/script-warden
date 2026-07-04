@@ -368,4 +368,110 @@ public static partial class ScriptExtractor
         "|(?<![\\w.])(?<u>(?:[A-Za-z]:[\\\\/]|\\\\\\\\|\\.{1,2}[\\\\/]|[\\\\/])[^\\s'\"()|&;,<>]{0,320}?\\.(?:ps1|psm1|psd1|cmd|bat|vbs|vbe|js|jse|wsf))",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ScriptPathRegex();
+
+    /// <summary>A script reference discovered inside another script's content (a "trampoline").</summary>
+    public sealed record ContentScriptRef(string Original, string ResolvedPath, string Extension, ScriptLanguage Language);
+
+    private static readonly char[] TokenStopChars =
+        [' ', '\t', '\r', '\n', '"', '\'', '|', '&', '<', '>', ';', ',', '`', '='];
+
+    /// <summary>
+    /// Finds script files referenced inside a captured script's <em>content</em> (e.g. a <c>.cmd</c>
+    /// that launches its <c>.ps1</c> equivalent). Anchors on a script extension, then looks back to the
+    /// start of the token — honoring quotes so paths containing spaces survive — normalizes the common
+    /// "relative to my own folder" prefixes (<c>%~dp0</c>, <c>$PSScriptRoot</c>, <c>.\</c>) and resolves
+    /// bare/relative names against <paramref name="baseDir"/> (the referencing script's folder). The
+    /// caller checks existence; results are de-duplicated by resolved path.
+    /// </summary>
+    public static List<ContentScriptRef> FindContentScriptReferences(string text, string baseDir)
+    {
+        var refs = new List<ContentScriptRef>();
+        if (string.IsNullOrEmpty(text))
+        {
+            return refs;
+        }
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match m in ScriptExtensionRegex().Matches(text))
+        {
+            (int start, int stop) = TokenSpan(text, m.Index, m.Index + m.Length);
+            string token = text[start..stop].Trim();
+            if (token.Length == 0)
+            {
+                continue;
+            }
+            string resolved = ResolveContentReference(token, baseDir);
+            if (resolved.Length == 0 || !seen.Add(resolved))
+            {
+                continue;
+            }
+            string ext = GetExtension(resolved);
+            refs.Add(new ContentScriptRef(token, resolved, string.IsNullOrEmpty(ext) ? ".txt" : ext, LanguageForExtension(ext)));
+        }
+        return refs;
+    }
+
+    private static (int Start, int Stop) TokenSpan(string text, int extStart, int extEnd)
+    {
+        // If the extension is immediately followed by a closing quote, the reference is quoted:
+        // take everything back to the matching opening quote (so spaces inside the path are kept).
+        char after = extEnd < text.Length ? text[extEnd] : '\0';
+        if (after == '"' || after == '\'')
+        {
+            int open = extStart > 0 ? text.LastIndexOf(after, extStart - 1) : -1;
+            if (open >= 0)
+            {
+                return (open + 1, extEnd);
+            }
+        }
+        // Unquoted: walk back over path characters until a shell delimiter / whitespace.
+        int s = extStart;
+        while (s > 0 && Array.IndexOf(TokenStopChars, text[s - 1]) < 0)
+        {
+            s--;
+        }
+        return (s, extEnd);
+    }
+
+    private static string ResolveContentReference(string token, string baseDir)
+    {
+        string t = token.Trim().Trim('"', '\'').Trim();
+        while (t.StartsWith("& ", StringComparison.Ordinal) || t.StartsWith(". ", StringComparison.Ordinal))
+        {
+            t = t[2..].Trim().Trim('"', '\'').Trim();
+        }
+
+        Match batchVar = BatchDirVarRegex().Match(t);
+        if (batchVar.Success)
+        {
+            t = t[batchVar.Length..].TrimStart('\\', '/');
+        }
+        else if (t.StartsWith("$PSScriptRoot", StringComparison.OrdinalIgnoreCase))
+        {
+            t = t["$PSScriptRoot".Length..].TrimStart('\\', '/');
+        }
+        else if (t.StartsWith(".\\", StringComparison.Ordinal) || t.StartsWith("./", StringComparison.Ordinal))
+        {
+            t = t[2..];
+        }
+
+        t = t.Trim().Trim('"', '\'');
+        if (t.Length == 0)
+        {
+            return "";
+        }
+        try
+        {
+            return Path.IsPathRooted(t) ? Path.GetFullPath(t) : Path.GetFullPath(Path.Combine(baseDir, t));
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    [GeneratedRegex(@"\.(?:ps1|psm1|psd1|cmd|bat|vbs|vbe|js|jse|wsf)(?![A-Za-z0-9_])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ScriptExtensionRegex();
+
+    [GeneratedRegex(@"^%~[a-zA-Z]*[0-9]", RegexOptions.CultureInvariant)]
+    private static partial Regex BatchDirVarRegex();
 }
