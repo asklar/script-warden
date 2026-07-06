@@ -56,15 +56,30 @@ captured:
 
 ### Analysis
 
-The **Analysis** tab groups captured activity by different dimensions so you can quickly spot
-patterns and narrow down to the scripts that matter:
+The **Analysis** tab classifies captured activity with data-driven **taxonomies** and rolls it up so
+you can spot patterns and drill into the scripts that matter. Built-in taxonomies group by:
 
-- **By source** — who or what is launching scripts: management agents, scheduled tasks, user
-  sessions, or the OS itself.
-- **By behavior** — what the scripts are doing: dev tools, interactive sessions, Intune/MDM
-  management, system configuration, and more.
+- **Source** — who or what launched the script: management agents (Intune/MDM, ConfigMgr), scheduled
+  tasks, Group Policy, Windows servicing, EDR/AV, dev tools, interactive sessions, or SYSTEM.
+- **Behavior** — what the script does: install/uninstall, update, inventory, config change,
+  persistence, network/download, remote execution, credential access, or obfuscation.
+- **Visibility, Interpreter, Ran as, Outcome** — the audit dimensions, as rollups.
 
-Click any category to filter the audit log to just those entries.
+More ways to narrow down:
+
+- **Composable filters** — stack any number of conditions (taxonomy include/exclude, time range, and
+  content search) with a live match count, then drill into the matching events.
+- **Full-text script search** — find launches whose *captured script content* mentions something
+  (e.g. `outlook.exe`, a URL, a registry key), not just the command line.
+- Click any rollup category to filter the audit log to just those entries.
+
+Scripts in the detail view are **syntax-highlighted** for their interpreter (PowerShell, cmd,
+VBScript, …).
+
+Taxonomies are just JSON under `%LOCALAPPDATA%\script-warden\taxonomies\` — edit them or drop in your
+own. script-warden auto-refreshes the built-ins you haven't touched, and `analyze --reset-taxonomies`
+restores the shipped set (custom taxonomies are kept). Building the analysis database is an explicit
+gesture: run `script-warden analyze`, or hit **Refresh analysis** in the viewer.
 
 ![Analysis grouped by source](docs/images/script-warden-analysis-source.png)
 
@@ -89,6 +104,7 @@ script-warden uninstall [--images a,b]
 script-warden status
 script-warden serve [--port N] [--no-open]
 script-warden list [--json] [--image NAME] [--since DATE] [--limit N]
+script-warden analyze [--group-by TAX] [--search TEXT] [--filter-taxonomy TAX --filter-label L] [--reset-taxonomies] [--json]
 script-warden diagnose
 ```
 
@@ -100,6 +116,10 @@ script-warden diagnose
 - **status** : shows which interpreters are currently monitored.
 - **serve** : starts the localhost viewer and opens a browser.
 - **list** : prints recent activity to the console (`--json` for scripting).
+- **analyze** : builds/updates the analysis database and prints a rollup grouped by a taxonomy
+  (default `source`). `--search` finds launches whose captured script content mentions text;
+  `--reset-taxonomies` restores the built-in taxonomies (your custom ones are kept). The viewer's
+  Analysis tab uses the same engine.
 - **diagnose** : self-test: resolved data locations + write access, current monitoring state, and a
   simulated capture of representative command lines. Run this first if something looks off.
 
@@ -110,6 +130,8 @@ Per-user, under `%LOCALAPPDATA%\script-warden` (override with `SCRIPT_WARDEN_DAT
 ```
 events\<utc-timestamp>-<pid>-<id>.json   one file per launch (lock-free)
 scripts\<sha256>.<ext>                   captured scripts, de-duplicated by content
+taxonomies\*.json                        analysis rules (editable; built-ins auto-managed)
+analysis.db                              analysis database, built by `analyze`
 ```
 
 Scripts that run as **SYSTEM** are captured under
