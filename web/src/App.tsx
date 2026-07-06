@@ -501,7 +501,7 @@ export function App({ themeMode, onThemeChange }: { themeMode: ThemeMode; onThem
                     )}
                 </>
             ) : tab === "analysis" ? (
-                <AnalysisView onSelect={setSelected} onError={setError} />
+                <AnalysisView onSelect={setSelected} onError={setError} parentOptions={parentOptions} />
             ) : (
                 <SettingsView onError={setError} />
             )}
@@ -685,7 +685,7 @@ function ExclusionList({ title, hint, placeholder, values, onChange }: { title: 
     );
 }
 
-function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void; onError: (e: string) => void }) {
+function AnalysisView({ onSelect, onError, parentOptions }: { onSelect: (e: AuditEvent) => void; onError: (e: string) => void; parentOptions: string[] }) {
     const styles = useStyles();
     const [taxonomies, setTaxonomies] = useState<TaxonomyInfo[]>([]);
     const [taxonomy, setTaxonomy] = useState("source");
@@ -695,6 +695,7 @@ function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void
     const [mentions, setMentions] = useState("");
     const [debouncedMentions, setDebouncedMentions] = useState("");
     const [timePreset, setTimePreset] = useState("all");
+    const [parentSel, setParentSel] = useState<MultiSelection>("all");
     const [selected, setSelected] = useState<Record<string, string[]>>({});
     const [matched, setMatched] = useState(0);
     const [detail, setDetail] = useState<{ title: string; events: AuditEvent[] } | null>(null);
@@ -718,6 +719,7 @@ function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void
         }
         const presetMs: Record<string, number> = { "24h": 86_400_000, "7d": 604_800_000, "30d": 2_592_000_000 };
         if (timePreset in presetMs) filters.push({ type: "time", sinceMs: Date.now() - presetMs[timePreset] });
+        if (parentSel !== "all" && parentSel.length > 0) filters.push({ type: "parent", values: parentSel });
         const q = debouncedMentions.trim();
         if (q) filters.push({ type: "content", query: q });
         return filters;
@@ -740,7 +742,7 @@ function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void
     useEffect(() => {
         void loadRef.current();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [taxonomy, selected, timePreset, debouncedMentions]);
+    }, [taxonomy, selected, timePreset, parentSel, debouncedMentions]);
 
     async function doRefresh() {
         setRefreshing(true);
@@ -784,6 +786,7 @@ function AnalysisView({ onSelect, onError }: { onSelect: (e: AuditEvent) => void
                     <Caption1 block>Script mentions</Caption1>
                     <Input placeholder="e.g. outlook.exe" value={mentions} onChange={(_, d) => setMentions(d.value)} contentBefore={<SearchRegular />} />
                 </div>
+                <MultiFilterDropdown label="Parent" selection={parentSel} options={parentOptions} onChange={setParentSel} />
                 {taxonomies.filter((t) => t.id !== taxonomy).map((t) => (
                     <div key={t.id}>
                         <Caption1 block>{t.name}</Caption1>

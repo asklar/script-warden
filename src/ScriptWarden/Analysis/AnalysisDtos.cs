@@ -22,7 +22,7 @@ public sealed class RollupResponse
 /// <summary>One filter predicate. Predicates are AND-ed; within a taxonomy predicate labels are OR-ed.</summary>
 public sealed class AnalysisFilter
 {
-    /// <summary>"taxonomy" | "time" | "duration" | "content".</summary>
+    /// <summary>"taxonomy" | "time" | "duration" | "content" | "parent".</summary>
     public string Type { get; set; } = "";
 
     // taxonomy
@@ -39,6 +39,9 @@ public sealed class AnalysisFilter
 
     // content (FTS)
     public string? Query { get; set; }
+
+    // parent (immediate parent process names to include, OR-ed)
+    public List<string>? Values { get; set; }
 }
 
 /// <summary>A viewer analysis request: group by a taxonomy, constrained by an AND-ed filter set.</summary>
