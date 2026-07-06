@@ -156,6 +156,36 @@ public class TaxonomyEngineTests
     private static Taxonomy DefaultBehavior() =>
         DefaultTaxonomies.All().First(t => t.Id == "behavior");
 
+    private static Taxonomy DefaultSource() =>
+        DefaultTaxonomies.All().First(t => t.Id == "source");
+
+    [Theory]
+    [InlineData("cargo.exe")]
+    [InlineData("go.exe")]
+    [InlineData("cmake.exe")]
+    [InlineData("ninja.exe")]
+    [InlineData("cl.exe")]
+    [InlineData("clang.exe")]
+    [InlineData("nmake.exe")]
+    [InlineData("pnpm.exe")]
+    [InlineData("vcpkg.exe")]
+    [InlineData("rider64.exe")]
+    [InlineData("dotnet.exe")]
+    [InlineData("devenv.exe")]
+    public void Source_AttributesCommonDevToolsAsDevTools(string ancestor)
+    {
+        Assert.Contains("Dev tools (mine)", TaxonomyEngine.Classify(DefaultSource(), Facts([ancestor])));
+    }
+
+    [Theory]
+    // Ambiguous runtimes were intentionally left out; management agents stay their own source.
+    [InlineData("python.exe")]
+    [InlineData("java.exe")]
+    public void Source_DoesNotAttributeAmbiguousRuntimesAsDevTools(string ancestor)
+    {
+        Assert.DoesNotContain("Dev tools (mine)", TaxonomyEngine.Classify(DefaultSource(), Facts([ancestor])));
+    }
+
     // Obfuscation is now command-line-argument aware: it only fires when a real encoded-command flag
     // is a discrete argument, never when the same text appears inside a quoted string / comment / data.
     private static EventFacts CmdFacts(string commandLine, string[]? scripts = null) =>
