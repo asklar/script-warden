@@ -54,6 +54,22 @@ captured:
 
 ![Detail view: command line, parent chain, and captured scripts](docs/images/script-warden-detail.png)
 
+### Analysis
+
+The **Analysis** tab groups captured activity by different dimensions so you can quickly spot
+patterns and narrow down to the scripts that matter:
+
+- **By source** — who or what is launching scripts: management agents, scheduled tasks, user
+  sessions, or the OS itself.
+- **By behavior** — what the scripts are doing: dev tools, interactive sessions, Intune/MDM
+  management, system configuration, and more.
+
+Click any category to filter the audit log to just those entries.
+
+![Analysis grouped by source](docs/images/script-warden-analysis-source.png)
+
+![Analysis grouped by behavior](docs/images/script-warden-analysis-behavior.png)
+
 ## Quick start
 
 Grab `script-warden.exe` (a single self-contained file, no runtime to install), then:
