@@ -152,4 +152,42 @@ public class TaxonomyEngineTests
         };
         Assert.Equal(["Dev tools (mine)"], TaxonomyEngine.Classify(tax, facts));
     }
+
+    private static Taxonomy DefaultBehavior() =>
+        DefaultTaxonomies.All().First(t => t.Id == "behavior");
+
+    // Obfuscation is now command-line-argument aware: it only fires when a real encoded-command flag
+    // is a discrete argument, never when the same text appears inside a quoted string / comment / data.
+    private static EventFacts CmdFacts(string commandLine, string[]? scripts = null) =>
+        EventFacts.From(new AuditEvent { CommandLine = commandLine }, scripts);
+
+    [Theory]
+    // The flag text appears only inside a quoted string arg, a hyphenated path, or as -Encoding — none count.
+    [InlineData("pwsh.exe -NoProfile -Command \"Remove-Item (Join-Path $env:TEMP 'sw-enc-test') -Recurse\"")]
+    [InlineData("pwsh.exe -Command \"it requires a real -EncodedCommand flag or FromBase64String\"")]
+    [InlineData("powershell.exe -Command \"$d = [Convert]::FromBase64String($b)\"")]
+    [InlineData("pwsh.exe -Command \"Get-Content x -Encoding UTF8\"")]
+    [InlineData("powershell.exe -ExecutionPolicy Bypass -File c:\\x.ps1")]
+    public void Obfuscation_DoesNotFlagWhenFlagIsInsideAStringOrWord(string cmd)
+    {
+        Assert.DoesNotContain("Obfuscation", TaxonomyEngine.Classify(DefaultBehavior(), CmdFacts(cmd)));
+    }
+
+    [Fact]
+    public void Obfuscation_DoesNotFlagFromBase64StringInCapturedContent()
+    {
+        // Captured script content that merely mentions the API (e.g. our own PR prose) must not flag.
+        var facts = CmdFacts("pwsh.exe -Command \"echo hi\"", scripts: ["needs a real -EncodedCommand flag, or FromBase64String."]);
+        Assert.DoesNotContain("Obfuscation", TaxonomyEngine.Classify(DefaultBehavior(), facts));
+    }
+
+    [Theory]
+    // A real encoded-command invocation: the flag is its own argument.
+    [InlineData("powershell.exe -EncodedCommand ZQBjAGgAbwAgAGgAaQAgAHcAbwByAGwAZAA=")]
+    [InlineData("pwsh.exe -NoProfile -enc ZQBjAGgAbwAgAGgAaQA=")]
+    [InlineData("powershell -e ZQBjAGgAbwA=")]
+    public void Obfuscation_FlagsRealEncodedCommandArgument(string cmd)
+    {
+        Assert.Contains("Obfuscation", TaxonomyEngine.Classify(DefaultBehavior(), CmdFacts(cmd)));
+    }
 }

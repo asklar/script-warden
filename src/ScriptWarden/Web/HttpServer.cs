@@ -51,12 +51,17 @@ internal sealed class HttpServer
 {
     private readonly int _port;
     private readonly Func<HttpRequest, HttpResponse> _handler;
+    private readonly Action<string>? _log;
     private TcpListener? _listener;
+    private volatile bool _stopping;
+    private volatile TcpClient? _current;
+    private long _accepted;
 
-    public HttpServer(int port, Func<HttpRequest, HttpResponse> handler)
+    public HttpServer(int port, Func<HttpRequest, HttpResponse> handler, Action<string>? log = null)
     {
         _port = port;
         _handler = handler;
+        _log = log;
     }
 
     /// <summary>Binds and begins listening. Once this returns, connections are accepted (queued),
@@ -65,39 +70,78 @@ internal sealed class HttpServer
     {
         _listener = new TcpListener(IPAddress.Loopback, _port);
         _listener.Start();
+        _log?.Invoke($"listening on 127.0.0.1:{_port}");
     }
 
-    /// <summary>Blocks, serving requests. <see cref="Start"/> must have been called first.</summary>
+    /// <summary>The actual TCP port the listener bound to (useful when constructed with port 0).</summary>
+    public int BoundPort => _listener?.LocalEndpoint is IPEndPoint ep ? ep.Port : _port;
+
+    /// <summary>
+    /// Requests a graceful stop (safe to call from another thread, e.g. the Ctrl+C handler). Closing
+    /// the listener unblocks a pending <c>AcceptTcpClient</c>; closing the in-flight client aborts a
+    /// blocking request read immediately — without this, shutdown waits out the 5s read timeout, which
+    /// is what made Ctrl+C feel like it "didn't work" while the browser held idle keep-alive sockets.
+    /// </summary>
+    public void Stop()
+    {
+        _stopping = true;
+        _log?.Invoke("stop requested: closing listener + any in-flight connection");
+        try { _listener?.Stop(); } catch { /* already stopped / never started */ }
+        try { _current?.Close(); } catch { /* no active client */ }
+    }
+
+    /// <summary>Blocks, serving requests, until <see cref="Stop"/> is called. <see cref="Start"/>
+    /// must have been called first.</summary>
     public void AcceptLoop()
     {
         TcpListener listener = _listener ?? throw new InvalidOperationException("Start() must be called before AcceptLoop().");
-        while (true)
+        while (!_stopping)
         {
-            TcpClient client = listener.AcceptTcpClient();
+            TcpClient client;
+            try
+            {
+                client = listener.AcceptTcpClient();
+            }
+            catch (Exception) when (_stopping)
+            {
+                break; // listener was closed by Stop() — expected during shutdown
+            }
+            long id = Interlocked.Increment(ref _accepted);
+            _current = client;
+            if (_stopping)
+            {
+                try { client.Dispose(); } catch { }
+                break; // Stop() raced in right after accept — bail before blocking on a read
+            }
+            _log?.Invoke($"#{id} accepted");
             // Handle sequentially; the viewer is single-user and low volume. Isolate failures.
             try
             {
-                HandleClient(client);
+                HandleClient(client, id);
             }
-            catch
+            catch (Exception ex)
             {
-                // ignore malformed clients
+                _log?.Invoke($"#{id} handler error: {ex.GetType().Name}: {ex.Message}");
             }
             finally
             {
-                client.Dispose();
+                _current = null;
+                try { client.Dispose(); } catch { }
             }
         }
+        _log?.Invoke("accept loop exited");
     }
 
-    private void HandleClient(TcpClient client)
+    private void HandleClient(TcpClient client, long id)
     {
+        System.Diagnostics.Stopwatch? sw = _log is null ? null : System.Diagnostics.Stopwatch.StartNew();
         using NetworkStream stream = client.GetStream();
         stream.ReadTimeout = 5000;
 
         string? requestLine = ReadRequestHeader(stream, out string headers);
         if (requestLine is null)
         {
+            _log?.Invoke($"#{id} no request line ({sw!.ElapsedMilliseconds}ms)");
             return;
         }
 
@@ -105,6 +149,7 @@ internal sealed class HttpServer
         if (parts.Length < 2)
         {
             Write(stream, HttpResponse.Text("Bad Request", 400));
+            _log?.Invoke($"#{id} malformed request -> 400");
             return;
         }
 
@@ -135,6 +180,7 @@ internal sealed class HttpServer
         }
 
         Write(stream, response);
+        _log?.Invoke($"#{id} {method} {path} -> {response.Status} ({sw!.ElapsedMilliseconds}ms)");
     }
 
     private static string ReadBody(NetworkStream stream, string headers)

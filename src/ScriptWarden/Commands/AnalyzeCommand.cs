@@ -19,6 +19,17 @@ internal static class AnalyzeCommand
     {
         CliOptions opts = CliOptions.Parse(args, 1, ValueKeys);
         string root = DataRoots.CurrentUserRoot();
+
+        if (opts.Has("reset-taxonomies"))
+        {
+            List<string> reset = TaxonomyStore.ResetDefaults(root);
+            Console.WriteLine(reset.Count == 0
+                ? "Built-in taxonomies were already current."
+                : $"Reset built-in taxonom{(reset.Count == 1 ? "y" : "ies")} to shipped defaults: {string.Join(", ", reset)}");
+            Console.WriteLine($"  (under {TaxonomyStore.Dir(root)}; your own custom taxonomies were left untouched)");
+            Console.WriteLine();
+        }
+
         List<Taxonomy> taxonomies = TaxonomyStore.Load(root);
 
         if (opts.Has("taxonomies"))

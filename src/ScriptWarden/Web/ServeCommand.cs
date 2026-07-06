@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -23,12 +25,19 @@ internal static partial class ServeCommand
             port = parsed;
         }
         bool open = !opts.Has("no-open");
+        bool verbose = opts.Has("verbose") || opts.Has("v");
 
         string url = $"http://127.0.0.1:{port}/";
 
+        // --verbose traces connection + request + shutdown activity to stderr, so you can see exactly
+        // what the viewer is doing (e.g. that Ctrl+C was received and the accept loop exited).
+        Action<string>? log = verbose
+            ? m => Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] serve: {m}")
+            : null;
+
         // Bind + start listening BEFORE opening the browser, so the first navigation always lands on
         // a live server (previously the browser could open before the listener was up → blank/404).
-        var server = new HttpServer(port, Route);
+        var server = new HttpServer(port, Route, log);
         try
         {
             server.Start();
@@ -47,6 +56,19 @@ internal static partial class ServeCommand
         }
         Console.WriteLine("Press Ctrl+C to stop.");
 
+        // Handle Ctrl+C / Ctrl+Break / console-close via the Win32 control handler rather than
+        // Console.CancelKeyPress (the .NET handler initializes console input with side effects).
+        _activeServer = server;
+        _ctrlLog = log;
+        unsafe { SetConsoleCtrlHandler(&HandleConsoleCtrl, 1); }
+
+        // Shells with a line editor (pwsh/PSReadLine) clear ENABLE_PROCESSED_INPUT so they can handle
+        // Ctrl+C as input themselves; a child console app inherits that mode, so Ctrl+C arrives as a
+        // 0x03 *keystroke* (queued in the input buffer) instead of a CTRL_C_EVENT — and since we never
+        // read input, it's ignored until we exit. Re-enable processed input so Ctrl+C fires our
+        // handler, and restore quick-edit so click-drag text selection works again.
+        EnsureConsoleCtrlAndSelection(log);
+
         if (open)
         {
             TryOpenBrowser(url);
@@ -60,6 +82,92 @@ internal static partial class ServeCommand
 
         server.AcceptLoop();
         return 0;
+    }
+
+    private static HttpServer? _activeServer;
+    private static Action<string>? _ctrlLog;
+    private static int _interrupts;
+    private static int _watchdogArmed;
+
+    private const int StdInputHandle = -10;
+    private const uint EnableProcessedInput = 0x0001;
+    private const uint EnableQuickEditMode = 0x0040;
+    private const uint EnableExtendedFlags = 0x0080;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern unsafe int SetConsoleCtrlHandler(delegate* unmanaged[Stdcall]<uint, int> handler, int add);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern nint GetStdHandle(int nStdHandle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern int GetConsoleMode(nint handle, out uint mode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern int SetConsoleMode(nint handle, uint mode);
+
+    [DllImport("kernel32.dll")]
+    private static extern nint GetCurrentProcess();
+
+    [DllImport("kernel32.dll")]
+    private static extern int TerminateProcess(nint handle, uint exitCode);
+
+    private static void EnsureConsoleCtrlAndSelection(Action<string>? log)
+    {
+        try
+        {
+            nint hIn = GetStdHandle(StdInputHandle);
+            if (hIn == 0 || hIn == -1 || GetConsoleMode(hIn, out uint mode) == 0)
+            {
+                return; // no console (input redirected) — nothing to fix
+            }
+            uint desired = mode | EnableProcessedInput | EnableExtendedFlags | EnableQuickEditMode;
+            if (desired != mode && SetConsoleMode(hIn, desired) != 0)
+            {
+                log?.Invoke($"console input mode 0x{mode:x} -> 0x{desired:x} (Ctrl+C as signal, quick-edit on)");
+            }
+        }
+        catch
+        {
+            // best-effort; never block startup on console tweaks
+        }
+    }
+
+    // Windows console control types: CTRL_C=0, CTRL_BREAK=1, CTRL_CLOSE=2, CTRL_LOGOFF=5, CTRL_SHUTDOWN=6.
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static int HandleConsoleCtrl(uint ctrlType)
+    {
+        int n = Interlocked.Increment(ref _interrupts);
+        // A second Ctrl+C hard-kills immediately.
+        if (n >= 2)
+        {
+            TerminateProcess(GetCurrentProcess(), 0);
+            return 1;
+        }
+        // Stop FIRST, before any console I/O (a paused/quick-edit-selected console can block writes,
+        // which must never prevent shutdown). Arm a watchdog that force-exits if the main thread is
+        // wedged, so Ctrl+C is guaranteed to win.
+        ArmExitWatchdog();
+        _activeServer?.Stop();
+        _ctrlLog?.Invoke($"console control event {ctrlType} received (#{n}); stopping");
+        return 1; // handled — we own the shutdown (graceful, or the watchdog)
+    }
+
+    private static void ArmExitWatchdog()
+    {
+        if (Interlocked.Exchange(ref _watchdogArmed, 1) != 0)
+        {
+            return;
+        }
+        var t = new Thread(static () =>
+        {
+            // Graceful shutdown is normally a few ms; if we're still alive after the grace period the
+            // main thread is stuck (e.g. blocked on a paused console), so force the process to exit.
+            Thread.Sleep(1200);
+            TerminateProcess(GetCurrentProcess(), 0);
+        })
+        { IsBackground = true, Name = "sw-shutdown-watchdog" };
+        t.Start();
     }
 
     private static HttpResponse Route(HttpRequest req)

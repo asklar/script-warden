@@ -32,7 +32,7 @@ public static class DefaultTaxonomies
             Rule("Windows servicing", In("ancestorName", "TrustedInstaller.exe", "TiWorker.exe", "usoclient.exe", "wuauclt.exe")),
             Rule("Logon / session init", In("ancestorName", "userinit.exe", "winlogon.exe")),
             Rule("EDR / AV", In("ancestorName", "MsMpEng.exe", "SenseIR.exe", "CSFalconService.exe")),
-            Rule("Dev tools (mine)", In("ancestorName", "Code.exe", "devenv.exe", "copilot.exe", "git.exe", "node.exe")),
+            Rule("Dev tools (mine)", In("ancestorName", "Code.exe", "devenv.exe", "copilot.exe", "git.exe", "node.exe", "dotnet.exe", "MSBuild.exe")),
             Rule("Interactive (me)", In("ancestorName", "explorer.exe", "WindowsTerminal.exe")),
             Rule("SYSTEM", Eq("userSid", "S-1-5-18")),
             Default("Unknown"),
@@ -64,7 +64,15 @@ public static class DefaultTaxonomies
             },
             Behavior("Remote execution", @"Invoke-Command|Enter-PSSession|wmic .* process call create|psexec"),
             Behavior("Credential / security", @"Get-Credential|\bcmdkey\b|\bcertutil\b|Export-\w*Certificate|\bsecedit\b"),
-            Behavior("Obfuscation", @"-enc\b|-EncodedCommand|FromBase64String|-e\s+[A-Za-z0-9+/]{40,}"),
+            // Obfuscation = the interpreter was launched with an encoded-command flag. Match it as a
+            // discrete command-line *argument* (-e / -enc / -EncodedCommand), so the token only counts
+            // when it's a real flag — not when the same text appears inside a quoted string, a comment,
+            // or data being piped to another program (which is what regex-over-raw-text used to flag).
+            new Rule
+            {
+                Label = "Obfuscation",
+                Any = [Rx("commandLineArgs", @"^-e(?:nc(?:odedcommand)?)?$")],
+            },
         ],
     };
 
