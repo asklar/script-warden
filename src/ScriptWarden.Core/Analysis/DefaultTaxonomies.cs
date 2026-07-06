@@ -32,7 +32,18 @@ public static class DefaultTaxonomies
             Rule("Windows servicing", In("ancestorName", "TrustedInstaller.exe", "TiWorker.exe", "usoclient.exe", "wuauclt.exe")),
             Rule("Logon / session init", In("ancestorName", "userinit.exe", "winlogon.exe")),
             Rule("EDR / AV", In("ancestorName", "MsMpEng.exe", "SenseIR.exe", "CSFalconService.exe")),
-            Rule("Dev tools (mine)", In("ancestorName", "Code.exe", "devenv.exe", "copilot.exe", "git.exe", "node.exe", "dotnet.exe", "MSBuild.exe")),
+            Rule("Dev tools (mine)", In("ancestorName",
+                // editors / IDEs
+                "Code.exe", "devenv.exe", "cursor.exe", "rider64.exe", "idea64.exe", "pycharm64.exe", "clion64.exe",
+                // agents / VCS / JS
+                "copilot.exe", "git.exe", "node.exe", "npm.exe", "npx.exe", "pnpm.exe", "yarn.exe",
+                // .NET / native build drivers
+                "dotnet.exe", "MSBuild.exe", "nuget.exe", "vcpkg.exe",
+                "cmake.exe", "ctest.exe", "ninja.exe", "make.exe", "nmake.exe", "mingw32-make.exe",
+                // compilers / toolchains
+                "cl.exe", "link.exe", "clang.exe", "clang-cl.exe", "gcc.exe", "g++.exe",
+                // Rust / Go
+                "cargo.exe", "rustc.exe", "rustup.exe", "go.exe")),
             Rule("Interactive (me)", In("ancestorName", "explorer.exe", "WindowsTerminal.exe")),
             Rule("SYSTEM", Eq("userSid", "S-1-5-18")),
             Default("Unknown"),

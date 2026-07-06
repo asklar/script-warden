@@ -24,8 +24,13 @@ public static class TaxonomyStore
     /// </summary>
     private static readonly Dictionary<string, HashSet<string>> KnownPriorHashes = new(StringComparer.OrdinalIgnoreCase)
     {
-        // "source" before "Dev tools (mine)" gained dotnet.exe / MSBuild.exe.
-        ["source"] = ["6ef4d60cc4402fd76d6039a7748ba4f9655734ce78cb83db1e9a5340c4b0c323"],
+        // "source" prior versions: [0] original, [1] after "Dev tools (mine)" gained dotnet.exe/MSBuild.exe
+        // (before the broader dev-tool set). Either upgrades cleanly to the current default.
+        ["source"] =
+        [
+            "6ef4d60cc4402fd76d6039a7748ba4f9655734ce78cb83db1e9a5340c4b0c323",
+            "3b94096585a49decb16fc72ee4b67f78b0293616ddc8884e564020fd9ea3cd7d",
+        ],
         // "behavior" prior versions: [0] original (before the Obfuscation tighten), [1] the interim
         // tightened regex (before Obfuscation became command-line-argument aware). Either upgrades cleanly.
         ["behavior"] =
