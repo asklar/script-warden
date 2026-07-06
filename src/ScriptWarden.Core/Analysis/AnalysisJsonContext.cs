@@ -13,6 +13,7 @@ namespace ScriptWarden.Core.Analysis;
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
 [JsonSerializable(typeof(Taxonomy))]
 [JsonSerializable(typeof(List<Taxonomy>))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
 public partial class AnalysisJsonContext : JsonSerializerContext
 {
 }

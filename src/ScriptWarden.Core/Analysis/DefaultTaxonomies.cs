@@ -32,7 +32,7 @@ public static class DefaultTaxonomies
             Rule("Windows servicing", In("ancestorName", "TrustedInstaller.exe", "TiWorker.exe", "usoclient.exe", "wuauclt.exe")),
             Rule("Logon / session init", In("ancestorName", "userinit.exe", "winlogon.exe")),
             Rule("EDR / AV", In("ancestorName", "MsMpEng.exe", "SenseIR.exe", "CSFalconService.exe")),
-            Rule("Dev tools (mine)", In("ancestorName", "Code.exe", "devenv.exe", "copilot.exe", "git.exe", "node.exe")),
+            Rule("Dev tools (mine)", In("ancestorName", "Code.exe", "devenv.exe", "copilot.exe", "git.exe", "node.exe", "dotnet.exe", "MSBuild.exe")),
             Rule("Interactive (me)", In("ancestorName", "explorer.exe", "WindowsTerminal.exe")),
             Rule("SYSTEM", Eq("userSid", "S-1-5-18")),
             Default("Unknown"),
