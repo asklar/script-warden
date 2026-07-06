@@ -13,7 +13,7 @@ namespace ScriptWarden.Commands;
 internal static class AnalyzeCommand
 {
     private static readonly HashSet<string> ValueKeys =
-        new(StringComparer.OrdinalIgnoreCase) { "group-by", "filter-taxonomy", "filter-label", "search", "limit" };
+        new(StringComparer.OrdinalIgnoreCase) { "group-by", "filter-taxonomy", "filter-label", "filter-parent", "search", "limit" };
 
     public static int Run(string[] args)
     {
@@ -64,6 +64,14 @@ internal static class AnalyzeCommand
         if (opts.Get("filter-taxonomy") is { Length: > 0 } filterTax && opts.Get("filter-label") is { Length: > 0 } filterLabel)
         {
             filters.Add(new AnalysisFilter { Type = "taxonomy", Taxonomy = filterTax, Op = "include", Labels = [filterLabel] });
+        }
+        if (opts.Get("filter-parent") is { Length: > 0 } filterParent)
+        {
+            filters.Add(new AnalysisFilter
+            {
+                Type = "parent",
+                Values = [.. filterParent.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)],
+            });
         }
 
         if (opts.Get("search") is { Length: > 0 } query)

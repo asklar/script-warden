@@ -399,6 +399,22 @@ internal sealed class AnalysisStore : IDisposable
                         sb.Append($" AND {alias}.event_id IN (SELECT es.event_id FROM scripts_fts fts JOIN event_scripts es ON es.sha=fts.sha WHERE fts.content MATCH {p})");
                     }
                     break;
+
+                case "parent":
+                    if (f.Values is { Count: > 0 })
+                    {
+                        var pph = new List<string>();
+                        foreach (string v in f.Values)
+                        {
+                            string p = "$f" + n++;
+                            pph.Add(p);
+                            cmd.Parameters.AddWithValue(p, v.ToLowerInvariant());
+                        }
+                        // Parent name lives in the stored event JSON; match the immediate parent
+                        // (case-insensitively) against the selected set, mirroring the audit list's filter.
+                        sb.Append($" AND LOWER(json_extract({alias}.json,'$.parentProcessName')) IN ({string.Join(",", pph)})");
+                    }
+                    break;
             }
         }
         return sb.ToString();

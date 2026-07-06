@@ -161,7 +161,7 @@ export interface RefreshResponse {
 }
 
 export interface AnalysisFilter {
-    type: "taxonomy" | "time" | "duration" | "content";
+    type: "taxonomy" | "time" | "duration" | "content" | "parent";
     taxonomy?: string;
     op?: "include" | "exclude";
     labels?: string[];
@@ -169,6 +169,7 @@ export interface AnalysisFilter {
     untilMs?: number;
     minDurationMs?: number;
     query?: string;
+    values?: string[];
 }
 
 export interface AnalysisRequest {
