@@ -152,4 +152,29 @@ public class TaxonomyEngineTests
         };
         Assert.Equal(["Dev tools (mine)"], TaxonomyEngine.Classify(tax, facts));
     }
+
+    private static Taxonomy DefaultBehavior() =>
+        DefaultTaxonomies.All().First(t => t.Id == "behavior");
+
+    [Theory]
+    // Hyphenated words / paths that merely contain "-enc" must NOT be flagged as obfuscation.
+    [InlineData("Remove-Item (Join-Path $env:TEMP 'sw-enc-test') -Recurse -Force")]
+    [InlineData("Get-Content report.txt -Encoding UTF8")]
+    [InlineData("pwsh -NoProfile -NonInteractive -Command \"[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\"")]
+    [InlineData("dir -Recurse -ErrorAction SilentlyContinue")]
+    public void Obfuscation_DoesNotFlagIncidentalEnc(string cmd)
+    {
+        Assert.DoesNotContain("Obfuscation", TaxonomyEngine.Classify(DefaultBehavior(), Facts([], cmd: cmd)));
+    }
+
+    [Theory]
+    // Real encoded commands / base64 decoding SHOULD still be flagged.
+    [InlineData("powershell -EncodedCommand ZQBjAGgAbwAgAGgAaQAgAHcAbwByAGwAZAA=")]
+    [InlineData("powershell -enc ZQBjAGgAbwAgAGgAaQAgAHcAbwByAGwAZAA=")]
+    [InlineData("pwsh -e JABzAD0AJwBoAGUAbABsAG8AJwA7ACQAcwArACQAcwA=")]
+    [InlineData("$d = [Convert]::FromBase64String($b)")]
+    public void Obfuscation_FlagsRealEncodedCommands(string cmd)
+    {
+        Assert.Contains("Obfuscation", TaxonomyEngine.Classify(DefaultBehavior(), Facts([], cmd: cmd)));
+    }
 }

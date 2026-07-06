@@ -64,7 +64,7 @@ public static class DefaultTaxonomies
             },
             Behavior("Remote execution", @"Invoke-Command|Enter-PSSession|wmic .* process call create|psexec"),
             Behavior("Credential / security", @"Get-Credential|\bcmdkey\b|\bcertutil\b|Export-\w*Certificate|\bsecedit\b"),
-            Behavior("Obfuscation", @"-enc\b|-EncodedCommand|FromBase64String|-e\s+[A-Za-z0-9+/]{40,}"),
+            Behavior("Obfuscation", @"(?:^|\s)-e(?:nc(?:odedcommand)?)?\s+[A-Za-z0-9+/]{20,}|FromBase64String"),
         ],
     };
 
