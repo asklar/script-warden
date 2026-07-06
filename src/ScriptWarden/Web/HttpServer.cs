@@ -52,6 +52,7 @@ internal sealed class HttpServer
     private readonly int _port;
     private readonly Func<HttpRequest, HttpResponse> _handler;
     private TcpListener? _listener;
+    private volatile bool _stopping;
 
     public HttpServer(int port, Func<HttpRequest, HttpResponse> handler)
     {
@@ -67,13 +68,40 @@ internal sealed class HttpServer
         _listener.Start();
     }
 
-    /// <summary>Blocks, serving requests. <see cref="Start"/> must have been called first.</summary>
+    /// <summary>
+    /// Requests a graceful stop: closing the listener unblocks the pending <see cref="AcceptLoop"/>
+    /// <c>AcceptTcpClient</c> call, so the loop returns and <c>serve</c> can exit cleanly (used from
+    /// the Ctrl+C handler). Safe to call from another thread.
+    /// </summary>
+    public void Stop()
+    {
+        _stopping = true;
+        try
+        {
+            _listener?.Stop();
+        }
+        catch
+        {
+            // already stopped / never started
+        }
+    }
+
+    /// <summary>Blocks, serving requests, until <see cref="Stop"/> is called. <see cref="Start"/>
+    /// must have been called first.</summary>
     public void AcceptLoop()
     {
         TcpListener listener = _listener ?? throw new InvalidOperationException("Start() must be called before AcceptLoop().");
-        while (true)
+        while (!_stopping)
         {
-            TcpClient client = listener.AcceptTcpClient();
+            TcpClient client;
+            try
+            {
+                client = listener.AcceptTcpClient();
+            }
+            catch (Exception) when (_stopping)
+            {
+                break; // listener was closed by Stop() — expected during shutdown
+            }
             // Handle sequentially; the viewer is single-user and low volume. Isolate failures.
             try
             {

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -47,6 +48,23 @@ internal static partial class ServeCommand
         }
         Console.WriteLine("Press Ctrl+C to stop.");
 
+        // Stop cleanly on Ctrl+C (and SIGTERM). Closing the listener unblocks AcceptLoop so we exit
+        // the loop and return normally. A second Ctrl+C falls through to a hard abort as a backstop,
+        // so the viewer can never get "stuck" ignoring Ctrl+C.
+        int interrupts = 0;
+        Console.CancelKeyPress += (_, e) =>
+        {
+            if (Interlocked.Increment(ref interrupts) == 1)
+            {
+                e.Cancel = true; // handle it ourselves this once
+                Console.WriteLine();
+                Console.WriteLine("Stopping…");
+                server.Stop();
+            }
+            // second Ctrl+C: leave e.Cancel = false → runtime terminates the process immediately.
+        };
+        using PosixSignalRegistration? sigTerm = TryRegisterSigterm(server);
+
         if (open)
         {
             TryOpenBrowser(url);
@@ -60,6 +78,22 @@ internal static partial class ServeCommand
 
         server.AcceptLoop();
         return 0;
+    }
+
+    private static PosixSignalRegistration? TryRegisterSigterm(HttpServer server)
+    {
+        try
+        {
+            return PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx =>
+            {
+                ctx.Cancel = true;
+                server.Stop();
+            });
+        }
+        catch
+        {
+            return null; // signal not supported on this platform/host
+        }
     }
 
     private static HttpResponse Route(HttpRequest req)
