@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -24,12 +25,19 @@ internal static partial class ServeCommand
             port = parsed;
         }
         bool open = !opts.Has("no-open");
+        bool verbose = opts.Has("verbose") || opts.Has("v");
 
         string url = $"http://127.0.0.1:{port}/";
 
+        // --verbose traces connection + request + shutdown activity to stderr, so you can see exactly
+        // what the viewer is doing (e.g. that Ctrl+C was received and the accept loop exited).
+        Action<string>? log = verbose
+            ? m => Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] serve: {m}")
+            : null;
+
         // Bind + start listening BEFORE opening the browser, so the first navigation always lands on
         // a live server (previously the browser could open before the listener was up → blank/404).
-        var server = new HttpServer(port, Route);
+        var server = new HttpServer(port, Route, log);
         try
         {
             server.Start();
@@ -48,22 +56,14 @@ internal static partial class ServeCommand
         }
         Console.WriteLine("Press Ctrl+C to stop.");
 
-        // Stop cleanly on Ctrl+C (and SIGTERM). Closing the listener unblocks AcceptLoop so we exit
-        // the loop and return normally. A second Ctrl+C falls through to a hard abort as a backstop,
-        // so the viewer can never get "stuck" ignoring Ctrl+C.
-        int interrupts = 0;
-        Console.CancelKeyPress += (_, e) =>
-        {
-            if (Interlocked.Increment(ref interrupts) == 1)
-            {
-                e.Cancel = true; // handle it ourselves this once
-                Console.WriteLine();
-                Console.WriteLine("Stopping…");
-                server.Stop();
-            }
-            // second Ctrl+C: leave e.Cancel = false → runtime terminates the process immediately.
-        };
-        using PosixSignalRegistration? sigTerm = TryRegisterSigterm(server);
+        // Handle Ctrl+C / Ctrl+Break / console-close via the Win32 control handler rather than
+        // Console.CancelKeyPress: the .NET handler initializes console *input*, which on Windows
+        // Terminal can flip the console out of quick-edit mode and break click-drag text selection.
+        // The native handler has no such side effect. First Ctrl+C stops gracefully; a second one is
+        // left unhandled so the OS hard-terminates as a backstop.
+        _activeServer = server;
+        _ctrlLog = log;
+        unsafe { SetConsoleCtrlHandler(&HandleConsoleCtrl, 1); }
 
         if (open)
         {
@@ -80,20 +80,26 @@ internal static partial class ServeCommand
         return 0;
     }
 
-    private static PosixSignalRegistration? TryRegisterSigterm(HttpServer server)
+    private static HttpServer? _activeServer;
+    private static Action<string>? _ctrlLog;
+    private static int _interrupts;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern unsafe int SetConsoleCtrlHandler(delegate* unmanaged[Stdcall]<uint, int> handler, int add);
+
+    // Windows console control types: CTRL_C=0, CTRL_BREAK=1, CTRL_CLOSE=2, CTRL_LOGOFF=5, CTRL_SHUTDOWN=6.
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static int HandleConsoleCtrl(uint ctrlType)
     {
-        try
-        {
-            return PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx =>
-            {
-                ctx.Cancel = true;
-                server.Stop();
-            });
-        }
-        catch
-        {
-            return null; // signal not supported on this platform/host
-        }
+        int n = Interlocked.Increment(ref _interrupts);
+        _ctrlLog?.Invoke($"console control event {ctrlType} received (#{n}); stopping");
+        Console.WriteLine();
+        Console.WriteLine("Stopping…");
+        _activeServer?.Stop();
+        // First Ctrl+C/Break → return TRUE (handled) so we shut down gracefully. A second one → return
+        // FALSE so the default handler hard-terminates. Close/logoff/shutdown are always "handled" (the
+        // OS terminates us shortly after regardless).
+        return (ctrlType >= 2 || n == 1) ? 1 : 0;
     }
 
     private static HttpResponse Route(HttpRequest req)

@@ -102,7 +102,7 @@ script-warden uninstall    # stop monitoring
 script-warden install [--images a,b] [--exe-path DIR] [--no-copy]
 script-warden uninstall [--images a,b]
 script-warden status
-script-warden serve [--port N] [--no-open]
+script-warden serve [--port N] [--no-open] [--verbose]
 script-warden list [--json] [--image NAME] [--since DATE] [--limit N]
 script-warden analyze [--group-by TAX] [--search TEXT] [--filter-taxonomy TAX --filter-label L] [--reset-taxonomies] [--json]
 script-warden diagnose
@@ -114,7 +114,8 @@ script-warden diagnose
 - **uninstall** : stops monitoring (removes only what script-warden added; never touches another
   tool's settings).
 - **status** : shows which interpreters are currently monitored.
-- **serve** : starts the localhost viewer and opens a browser.
+- **serve** : starts the localhost viewer and opens a browser. `--verbose` traces connection,
+  request, and shutdown activity to stderr.
 - **list** : prints recent activity to the console (`--json` for scripting).
 - **analyze** : builds/updates the analysis database and prints a rollup grouped by a taxonomy
   (default `source`). `--search` finds launches whose captured script content mentions text;
