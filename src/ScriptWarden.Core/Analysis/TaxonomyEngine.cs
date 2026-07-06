@@ -122,6 +122,7 @@ public static class TaxonomyEngine
         {
             case "hookedimage": return One(f.HookedImage);
             case "commandline": return One(f.CommandLine);
+            case "commandlineargs": return f.CommandLineArgs;
             case "targetpath": return One(f.TargetPath);
             case "user": return One(f.User);
             case "usersid": return One(f.UserSid);

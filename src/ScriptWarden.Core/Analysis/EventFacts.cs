@@ -11,6 +11,7 @@ public sealed class EventFacts
 {
     public string? HookedImage { get; init; }
     public string? CommandLine { get; init; }
+    public IReadOnlyList<string> CommandLineArgs { get; init; } = [];
     public string? TargetPath { get; init; }
     public string? User { get; init; }
     public string? UserSid { get; init; }
@@ -51,6 +52,7 @@ public sealed class EventFacts
         {
             HookedImage = ev.HookedImage,
             CommandLine = ev.CommandLine,
+            CommandLineArgs = string.IsNullOrEmpty(ev.CommandLine) ? [] : CommandLineParser.Tokenize(ev.CommandLine),
             TargetPath = ev.TargetPath,
             User = ev.User,
             UserSid = ev.UserSid,

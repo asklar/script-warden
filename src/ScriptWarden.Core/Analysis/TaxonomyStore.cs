@@ -26,9 +26,13 @@ public static class TaxonomyStore
     {
         // "source" before "Dev tools (mine)" gained dotnet.exe / MSBuild.exe.
         ["source"] = ["6ef4d60cc4402fd76d6039a7748ba4f9655734ce78cb83db1e9a5340c4b0c323"],
-        // "behavior" before the Obfuscation rule was tightened (the old "-enc\b" matched hyphenated
-        // words like "sw-enc-test"; now it requires a real -e/-enc/-EncodedCommand flag + base64 blob).
-        ["behavior"] = ["a22d56d2ebc32fe1f701c60814dc79f7089c0d036ed2dcc5a3f5e141a06283b3"],
+        // "behavior" prior versions: [0] original (before the Obfuscation tighten), [1] the interim
+        // tightened regex (before Obfuscation became command-line-argument aware). Either upgrades cleanly.
+        ["behavior"] =
+        [
+            "a22d56d2ebc32fe1f701c60814dc79f7089c0d036ed2dcc5a3f5e141a06283b3",
+            "63bdc3c1a8195f484c21c451ca003ac5b011ca0fd56d8f0b0c4190eb7f645dd5",
+        ],
     };
 
     /// <summary>

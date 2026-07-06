@@ -64,7 +64,15 @@ public static class DefaultTaxonomies
             },
             Behavior("Remote execution", @"Invoke-Command|Enter-PSSession|wmic .* process call create|psexec"),
             Behavior("Credential / security", @"Get-Credential|\bcmdkey\b|\bcertutil\b|Export-\w*Certificate|\bsecedit\b"),
-            Behavior("Obfuscation", @"(?:^|\s)-e(?:nc(?:odedcommand)?)?\s+[A-Za-z0-9+/]{20,}|FromBase64String"),
+            // Obfuscation = the interpreter was launched with an encoded-command flag. Match it as a
+            // discrete command-line *argument* (-e / -enc / -EncodedCommand), so the token only counts
+            // when it's a real flag — not when the same text appears inside a quoted string, a comment,
+            // or data being piped to another program (which is what regex-over-raw-text used to flag).
+            new Rule
+            {
+                Label = "Obfuscation",
+                Any = [Rx("commandLineArgs", @"^-e(?:nc(?:odedcommand)?)?$")],
+            },
         ],
     };
 
